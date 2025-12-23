@@ -15,7 +15,7 @@ class ProtocolAbstract722 : public ProtocolAbstract {
       : ProtocolAbstract(checkType, type, {0x00, 0x0B}, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, sp_cmd, {0x00, 0x00}, content) {
   }
 
-  virtual bool Load(ProtocolBase protocol) {
+  virtual bool Load(ProtocolBase& protocol) {
     CheckType = protocol.CheckType;
     Type = protocol.Type;
     Sp_Cmd.reset(new CmdClass(protocol.MainCmd, protocol.SubCmd));

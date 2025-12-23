@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -53,7 +53,7 @@ class ProtocolAbstract750 : public ProtocolAbstract {
       : ProtocolAbstract(checkType, type, {0x01, 0x01}, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, sp_cmd, {0x00, 0x00}, content) {
   }
 
-  virtual bool Load(ProtocolBase protocol) {
+  virtual bool Load(ProtocolBase& protocol) {
     CheckType = protocol.CheckType;
     Type = protocol.Type;
     Sp_Cmd.reset(new CmdClass(protocol.MainCmd, protocol.SubCmd));
@@ -70,13 +70,15 @@ class ProtocolAbstract750 : public ProtocolAbstract {
     }
 
     return (std::make_shared<ProtocolBase>(ByteVector({0x00, 0x00}), ByteVector({0x00, 0x00, 0x00, 0x00}), CheckType, Type, DeviceType, Remain,
-                                           Sp_Cmd->MainCmd, Sp_Cmd->SubCmd, CmdParams, *content))
+                                           Sp_Cmd->MainCmd, Sp_Cmd->SubCmd, CmdParams, *content, ProtocolBase::DataEndiannessMode::little_endian,
+                                           0xFFFE))
         ->GetBytes();
   }
 
   virtual std::shared_ptr<std::vector<uint8>> SetRequest() override {
     return (std::make_shared<ProtocolBase>(ByteVector({0x00, 0x00}), ByteVector({0x00, 0x00, 0x00, 0x00}), CheckType, Type, DeviceType, Remain,
-                                           Sp_Cmd->MainCmd, Sp_Cmd->SubCmd, CmdParams, *Params->GetBytes()))
+                                           Sp_Cmd->MainCmd, Sp_Cmd->SubCmd, CmdParams, *Params->GetBytes(),
+                                           ProtocolBase::DataEndiannessMode::little_endian, 0xFFFE))
         ->GetBytes();
   }
 };

@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -44,9 +44,9 @@ namespace vanjee {
 namespace lidar {
 class CmdRepository719C {
  public:
-  const std::shared_ptr<CmdClass> Sp_ScanDataGet = std::make_shared<CmdClass>(0x01, 0x01);
-  const std::shared_ptr<CmdClass> Sp_HeartBeat_Tcp = std::make_shared<CmdClass>(0x04, 0x04);
-  const std::shared_ptr<CmdClass> Sp_HeartBeat_Udp = std::make_shared<CmdClass>(0x05, 0x03);
+  const std::shared_ptr<CmdClass> sp_scan_data_get_ = std::make_shared<CmdClass>(0x01, 0x01);
+  const std::shared_ptr<CmdClass> sp_heart_beat_tcp_ = std::make_shared<CmdClass>(0x04, 0x04);
+  const std::shared_ptr<CmdClass> sp_heart_beat_udp_ = std::make_shared<CmdClass>(0x05, 0x03);
   static CmdRepository719C* CreateInstance() {
     if (p_CmdRepository719C == nullptr)
       p_CmdRepository719C = new CmdRepository719C();

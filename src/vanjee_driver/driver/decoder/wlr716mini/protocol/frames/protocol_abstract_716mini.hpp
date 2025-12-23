@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -53,7 +53,7 @@ class ProtocolAbstract716Mini : public ProtocolAbstract {
       : ProtocolAbstract(checkType, type, {0x00, 0x0D}, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, sp_cmd, {0x00, 0x00}, content) {
   }
 
-  virtual bool Load(ProtocolBase protocol) {
+  virtual bool Load(ProtocolBase& protocol) {
     CheckType = protocol.CheckType;
     Type = protocol.Type;
     Sp_Cmd.reset(new CmdClass(protocol.MainCmd, protocol.SubCmd));
@@ -69,7 +69,14 @@ class ProtocolAbstract716Mini : public ProtocolAbstract {
       content->insert(content->end(), arr, arr + sizeof(arr) / sizeof(uint8));
     }
 
-    return (std::make_shared<ProtocolBase>(ByteVector({0x00, 0x00}), ByteVector({0x00, 0x00, 0x00, 0x00}), CheckType, Type, DeviceType, Remain,
+    std::vector<uint16_t> cmd_buf = {0x0602};
+    uint16_t cmd = (Sp_Cmd->MainCmd << 8) + Sp_Cmd->SubCmd;
+    auto it = std::find(cmd_buf.begin(), cmd_buf.end(), cmd);
+    auto device_type = ByteVector({0x00, 0x00});
+    if (it == cmd_buf.end())
+      device_type = DeviceType;
+
+    return (std::make_shared<ProtocolBase>(ByteVector({0x00, 0x00}), ByteVector({0x00, 0x00, 0x00, 0x00}), CheckType, Type, device_type, Remain,
                                            Sp_Cmd->MainCmd, Sp_Cmd->SubCmd, CmdParams, *content))
         ->GetBytes();
   }

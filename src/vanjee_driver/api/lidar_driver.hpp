@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -41,6 +41,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vanjee_driver/driver/lidar_driver_impl.hpp>
 #include <vanjee_driver/msg/device_ctrl_msg.hpp>
 #include <vanjee_driver/msg/imu_packet.hpp>
+#include <vanjee_driver/msg/lidar_parameter_interface_msg.hpp>
 #include <vanjee_driver/msg/scan_data_msg.hpp>
 
 namespace vanjee {
@@ -88,6 +89,24 @@ class LidarDriver {
                                     const std::function<void(std::shared_ptr<DeviceCtrl>)> &cb_put_device_ctrl_state) {
     driver_ptr_->regDeviceCtrlCallback(cb_get_device_ctrl_state, cb_put_device_ctrl_state);
   }
+
+  inline void decodePacket(const Packet &pkt) {
+    driver_ptr_->decodePacket(pkt);
+  }
+
+  inline void regPacketCallback(const std::function<void(std::shared_ptr<Packet>)> &cb_put_packet) {
+    driver_ptr_->regPacketCallback(cb_put_packet);
+  }
+
+  inline void regLidarParameterInterfaceCallback(const std::function<std::shared_ptr<LidarParameterInterface>(void)> &cb_get_lidar_param,
+                                                 const std::function<void(std::shared_ptr<LidarParameterInterface>)> &cb_put_lidar_param) {
+    driver_ptr_->regLidarParameterInterfaceCallback(cb_get_lidar_param, cb_put_lidar_param);
+  }
+
+  inline void lidarParameterApi(const LidarParameterInterface &lidar_param) {
+    driver_ptr_->lidarParameterInsert(lidar_param);
+  }
+
   /**
    * @brief 向驱动程序注册异常消息回调函数。发生错误时，将调用此函数
    * @param callback 回调函数

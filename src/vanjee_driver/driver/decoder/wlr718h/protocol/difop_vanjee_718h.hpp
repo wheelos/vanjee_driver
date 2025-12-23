@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -53,6 +53,7 @@ namespace lidar {
 class DifopVanjee718H : public DifopBase {
  public:
   virtual void initGetDifoCtrlDataMapPtr();
+  virtual void addItem2GetDifoCtrlDataMapPtr(const LidarParameterInterface& lidar_parm);
 };
 
 void DifopVanjee718H::initGetDifoCtrlDataMapPtr() {
@@ -65,10 +66,24 @@ void DifopVanjee718H::initGetDifoCtrlDataMapPtr() {
   GetDifoCtrlClass getDifoCtrlData_ScanDataGet(*(std::make_shared<Protocol_ScanDataGet718H>()->GetRequest(content)), false, 3000);
   (*getDifoCtrlData_map_ptr_).emplace(CmdRepository718H::CreateInstance()->sp_scan_data_get_->GetCmdKey(), getDifoCtrlData_ScanDataGet);
 
+  GetDifoCtrlClass getDifoCtrlData_FirmwareGet(*(std::make_shared<Protocol_FirmwareVersionGet718H>()->GetRequest()), false, 1000);
+  (*getDifoCtrlData_map_ptr_).emplace(CmdRepository718H::CreateInstance()->sp_firmware_version_get_->GetCmdKey(), getDifoCtrlData_FirmwareGet);
+
   // GetDifoCtrlClass
   // getDifoCtrlData_TopBoardOperateGet(*(std::make_shared<Protocol_TopBoardOperateParamsGet718H>()->GetRequest()),
   // false, 3000);
   // (*getDifoCtrlData_map_ptr_).emplace(CmdRepository718H::CreateInstance()->sp_top_board_operate_params_get_->GetCmdKey(),getDifoCtrlData_TopBoardOperateGet);
+}
+
+void DifopVanjee718H::addItem2GetDifoCtrlDataMapPtr(const LidarParameterInterface& lidar_parm) {
+  if (lidar_parm.cmd_id == (uint16_t)LidarParam::firmware_version) {
+    uint16_t cmd = CmdRepository718H::CreateInstance()->sp_firmware_version_get_->GetCmdKey();
+    if (((*getDifoCtrlData_map_ptr_))[cmd].getStopFlag()) {
+      ((*getDifoCtrlData_map_ptr_))[cmd].setStopFlag(false);
+    }
+  } else {
+    ;
+  }
 }
 }  // namespace lidar
 }  // namespace vanjee

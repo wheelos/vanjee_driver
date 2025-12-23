@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -39,6 +39,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 #include <vanjee_driver/driver/decoder/decoder_mech.hpp>
 #include <vanjee_driver/driver/decoder/wlr718h/protocol/frames/cmd_repository_718h.hpp>
+#include <vanjee_driver/driver/decoder/wlr718h/protocol/frames/protocol_firmware_version_get.hpp>
 #include <vanjee_driver/driver/decoder/wlr718h/protocol/frames/protocol_scan_data_get.hpp>
 #include <vanjee_driver/driver/decoder/wlr718h/protocol/frames/protocol_topboard_operate_params_get.hpp>
 #include <vanjee_driver/driver/difop/cmd_class.hpp>
@@ -49,7 +50,7 @@ namespace vanjee {
 namespace lidar {
 #pragma pack(push, 1)
 
-typedef struct _Vanjee718hMsopPkt {
+typedef struct _Vanjee718hHeaderPkt {
   uint8_t header[2];
   uint16_t frame_len;
   uint16_t frame_id;
@@ -64,20 +65,32 @@ typedef struct _Vanjee718hMsopPkt {
   uint8_t cmd_param1;
   uint8_t cmd_param2;
 
+  void ToLittleEndian() {
+    frame_len = ntohs(frame_len);
+    frame_id = ntohs(frame_id);
+    timestamp = ntohl(timestamp);
+    device_type = ntohs(device_type);
+    protocol_version = ntohs(protocol_version);
+  }
+} Vanjee718hHeaderPkt;
+
+typedef struct _Vanjee718hMsopPkt {
+  Vanjee718hHeaderPkt header;
+
   uint16_t device_status;
   uint16_t watchdog_reset_num;
   uint16_t software_reset_num;
   uint16_t loss_elec_reset_num;
-  uint16_t usart_pulsewidth;
-  uint16_t botboard_usart_threshold;
+  uint16_t serial_port_pulse_width;
+  uint16_t bot_board_serial_port_threshold;
   uint16_t offset;
   uint16_t detected_encoder_groove_time_interval;
   uint16_t motor_speed_adjust_compare_value;
   uint16_t motor_speed;
-  uint16_t topboard_SPAD_voltage;
-  uint16_t topboard_tempture;
-  uint16_t botboard_voltage;
-  uint16_t botboard_voltage_compare_value;
+  uint16_t top_board_SPAD_voltage;
+  uint16_t top_board_temperature;
+  uint16_t bot_board_voltage;
+  uint16_t bot_board_voltage_compare_value;
   uint16_t link_disconnect_num;
   uint16_t reconnect_num;
   uint16_t disconnect_num;
@@ -101,26 +114,22 @@ typedef struct _Vanjee718hMsopPkt {
   uint16_t points_num;
 
   void ToLittleEndian() {
-    frame_len = ntohs(frame_len);
-    frame_id = ntohs(frame_id);
-    timestamp = ntohl(timestamp);
-    device_type = ntohs(device_type);
-    protocol_version = ntohs(protocol_version);
+    // header.ToLittleEndian();
 
     device_status = ntohs(device_status);
     watchdog_reset_num = ntohs(watchdog_reset_num);
     software_reset_num = ntohs(software_reset_num);
     loss_elec_reset_num = ntohs(loss_elec_reset_num);
-    usart_pulsewidth = ntohs(usart_pulsewidth);
-    botboard_usart_threshold = ntohs(botboard_usart_threshold);
+    serial_port_pulse_width = ntohs(serial_port_pulse_width);
+    bot_board_serial_port_threshold = ntohs(bot_board_serial_port_threshold);
     offset = ntohs(offset);
     detected_encoder_groove_time_interval = ntohs(detected_encoder_groove_time_interval);
     motor_speed_adjust_compare_value = ntohs(motor_speed_adjust_compare_value);
     motor_speed = ntohs(motor_speed);
-    topboard_SPAD_voltage = ntohs(topboard_SPAD_voltage);
-    topboard_tempture = ntohs(topboard_tempture);
-    botboard_voltage = ntohs(botboard_voltage);
-    botboard_voltage_compare_value = ntohs(botboard_voltage_compare_value);
+    top_board_SPAD_voltage = ntohs(top_board_SPAD_voltage);
+    top_board_temperature = ntohs(top_board_temperature);
+    bot_board_voltage = ntohs(bot_board_voltage);
+    bot_board_voltage_compare_value = ntohs(bot_board_voltage_compare_value);
     link_disconnect_num = ntohs(link_disconnect_num);
     reconnect_num = ntohs(reconnect_num);
     disconnect_num = ntohs(disconnect_num);
@@ -134,7 +143,7 @@ typedef struct _Vanjee718hMsopPkt {
 } Vanjee718hMsopPkt;
 #pragma pack(pop)
 
-typedef struct _PointDXYZIRT {
+typedef struct _PointDXYZIRTT {
   float the_1st_echo_distance;
   float the_1st_echo_x;
   float the_1st_echo_y;
@@ -146,13 +155,13 @@ typedef struct _PointDXYZIRT {
   float intensity;
   double timestamp;
   int ring;
-} PointDXYZIRT;
+  uint8_t tag;
+} PointDXYZIRTT;
 
 template <typename T_PointCloud>
 class DecoderVanjee718H : public DecoderMech<T_PointCloud> {
  private:
-  std::vector<std::vector<double>> all_points_luminous_moment_718h_;  // Cache a circle of point cloud time
-                                                                      // difference
+  std::vector<std::vector<double>> all_points_luminous_moment_718h_;  // Cache a circle of point cloud time difference
   double luminous_period_of_ld_10hz_ = 0.0000693;                     // Time interval at adjacent horizontal angles(10hz)
   double luminous_period_of_ld_15hz_ = 0.0000462;                     // Time interval at adjacent horizontal angles(15hz)
   double luminous_period_of_ld_14hz_ = 0.0000496;                     // Time interval at adjacent horizontal angles(14hz)
@@ -164,13 +173,15 @@ class DecoderVanjee718H : public DecoderMech<T_PointCloud> {
   uint32_t circle_id_of_pre_pkt_ = 0;
   int32_t pre_frame_id_ = -1;
 
+  std::map<uint16, std::string> get_lidar_param_;
+
   std::vector<uint8_t> buf_cache_;
 
   std::shared_ptr<SplitStrategy> split_strategy_;
   static WJDecoderMechConstParam &getConstParam(uint8_t mode);
   ChanAngles chan_angles_;
 
-  std::vector<PointDXYZIRT> point_cloud_value_;
+  std::vector<PointDXYZIRTT> point_cloud_value_;
   void initLdLuminousMoment(void);
   void setPointsValue(double timestamp, const uint8_t *points_buf, uint8_t pkt_type, uint8_t pkg_no, uint16_t points_num, uint8_t resolution_index);
 
@@ -212,11 +223,17 @@ inline WJDecoderMechConstParam &DecoderVanjee718H<T_PointCloud>::getConstParam(u
 template <typename T_PointCloud>
 inline DecoderVanjee718H<T_PointCloud>::DecoderVanjee718H(const WJDecoderParam &param)
     : DecoderMech<T_PointCloud>(getConstParam(param.publish_mode), param), chan_angles_(this->const_param_.LASER_NUM) {
+  this->point_cloud_detect_params_.enable = true;
+  this->point_cloud_detect_params_.valid_point_num_standard = 1368;
   if (param.max_distance < param.min_distance)
     WJ_WARNING << "config params (max distance < min distance)!" << WJ_REND;
 
   this->packet_duration_ = FRAME_DURATION / SINGLE_PKT_NUM;
   split_strategy_ = std::make_shared<SplitStrategyByBlock>(0);
+
+  this->start_angle_ = this->param_.start_angle * 1000;
+  this->end_angle_ = this->param_.end_angle * 1000;
+
   initLdLuminousMoment();
 }
 
@@ -265,7 +282,6 @@ inline bool DecoderVanjee718H<T_PointCloud>::decodeMsopPkt(const uint8_t *pkt, s
       indexLast = i + 1;
       continue;
     }
-
     if (decodeMsopPkt_1(&data[i], frameLen)) {
       ret = true;
       indexLast = i + frameLen;
@@ -304,12 +320,15 @@ inline void DecoderVanjee718H<T_PointCloud>::setPointsValue(double timestamp, co
 
       int32_t angle = (int32_t)((180 + ((pkg_no - 1) * 500 + i) * 0.25) * 1000) % 360000;
       float distance = ((points_buf[2 * i] << 8) + points_buf[2 * i + 1]) / 1000.0;
-      if (this->param_.start_angle < this->param_.end_angle) {
-        if (angle < this->param_.start_angle * 1000 || angle > this->param_.end_angle * 1000) {
+      if (distance > 0.007f) {
+        this->point_cloud_detect_params_.valid_point_num++;
+      }
+      if (this->start_angle_ < this->end_angle_) {
+        if (angle < this->start_angle_ || angle > this->end_angle_) {
           distance = 0;
         }
       } else {
-        if (angle > this->param_.end_angle * 1000 && angle < this->param_.start_angle * 1000) {
+        if (angle > this->end_angle_ && angle < this->start_angle_) {
           distance = 0;
         }
       }
@@ -330,6 +349,7 @@ inline void DecoderVanjee718H<T_PointCloud>::setPointsValue(double timestamp, co
       // point_cloud_value_[point_id].intensity = 0;
       point_cloud_value_[point_id].timestamp = timestamp_point;
       point_cloud_value_[point_id].ring = this->first_line_id_;
+      point_cloud_value_[point_id].tag = 0;
     }
   } else if (pkt_type == 1) {
     for (size_t i = 0; i < points_num; i++) {
@@ -343,12 +363,15 @@ inline void DecoderVanjee718H<T_PointCloud>::setPointsValue(double timestamp, co
 
 template <typename T_PointCloud>
 inline bool DecoderVanjee718H<T_PointCloud>::decodeMsopPkt_1(const uint8_t *packet, size_t size) {
-  Vanjee718hMsopPkt &pkt = (*(Vanjee718hMsopPkt *)packet);
-  pkt.ToLittleEndian();
+  Vanjee718hHeaderPkt &header = (*(Vanjee718hHeaderPkt *)packet);
+  header.ToLittleEndian();
 
-  if (!(pkt.main_cmd == 2 && pkt.sub_cmd == 2)) {
+  if (header.main_cmd != 0x02 || header.sub_cmd != 0x02) {
     return false;
   }
+
+  Vanjee718hMsopPkt &pkt = (*(Vanjee718hMsopPkt *)packet);
+  pkt.ToLittleEndian();
 
   bool ret = false;
   if (pkt_id_mask_result_ == 0) {
@@ -357,10 +380,10 @@ inline bool DecoderVanjee718H<T_PointCloud>::decodeMsopPkt_1(const uint8_t *pack
     }
   }
 
-  int32_t loss_packets_num = (pkt.frame_id + 65536 - pre_frame_id_) % 65536;
+  int32_t loss_packets_num = (pkt.header.frame_id + 65536 - pre_frame_id_) % 65536;
   if (loss_packets_num > 1 && pre_frame_id_ >= 0)
     WJ_WARNING << "loss " << (loss_packets_num - 1) << " packets" << WJ_REND;
-  pre_frame_id_ = pkt.frame_id;
+  pre_frame_id_ = pkt.header.frame_id;
 
   int32_t resolution_index = 0;
   uint8_t frequency = 15;
@@ -378,27 +401,26 @@ inline bool DecoderVanjee718H<T_PointCloud>::decodeMsopPkt_1(const uint8_t *pack
   }
 
   double pkt_ts = 0.0;
+  this->point_cloud_detect_params_.point_cloud_pkt_host_ts = getTimeHost() * 1e-6;
   if (!this->param_.use_lidar_clock) {
-    pkt_ts = getTimeHost() * 1e-6;
+    pkt_ts = this->point_cloud_detect_params_.point_cloud_pkt_host_ts;
   } else {
-    if (pkt.protocol_version < 2000 && (pkt.protocol_version & 0x0100) == 0x0100) {
+    if (pkt.header.protocol_version < 2000 && (pkt.header.protocol_version & 0x0100) == 0x0100) {
       double gapTime1900_1970 = (25567LL * 24 * 3600);
       uint32_t sec = packet[size - 17] + (packet[size - 18] << 8) + (packet[size - 19] << 16) + (packet[size - 20] << 24);
       uint32_t usec = packet[size - 13] + (packet[size - 14] << 8) + (packet[size - 15] << 16) + (packet[size - 16] << 24);
       pkt_ts = (double)sec + (double)usec / pow(2, 32) - gapTime1900_1970;
+      pkt_ts = pkt_ts < 0 ? 0 : pkt_ts;
     } else {
-      pkt_ts = 0.0;
+      pkt_ts = 0;
     }
   }
 
-  if (this->param_.device_ctrl_state_enable && pkt.protocol_version < 2000 &&
-      ((pkt.protocol_version & 0x0100) == 0x0100 || (pkt.protocol_version & 0x0200) == 0x0200)) {
+  if ((this->param_.device_ctrl_state_enable || this->param_.send_lidar_param_enable) && pkt.header.protocol_version < 2000 &&
+      ((pkt.header.protocol_version & 0x0100) == 0x0100 || (pkt.header.protocol_version & 0x0200) == 0x0200)) {
     uint16_t device_status = packet[size - 9] | (packet[size - 10] << 8);
     if (device_status == 0x0001 || device_status == 0x0002) {
-      this->device_ctrl_->cmd_id = 0x0100;
-      this->device_ctrl_->cmd_param = pkt.device_status;
-      this->device_ctrl_->cmd_state = (uint8_t)pkt.device_status;
-      this->cb_device_ctrl_state_(pkt_ts);
+      this->deviceStatePublish(0, device_status, device_status, pkt_ts);
     }
   }
 
@@ -420,6 +442,9 @@ inline bool DecoderVanjee718H<T_PointCloud>::decodeMsopPkt_1(const uint8_t *pack
   pkt_id_mask_ = pkt_id_mask_ | (0x01 << (pkt.pkt_id - 1));
 
   if ((pkt_id_mask_ & pkt_id_mask_result_) == pkt_id_mask_result_) {
+    if (this->point_cloud_detect_params_.enable) {
+      this->pointCloudDetectParamsUpdate();
+    }
     this->first_point_ts_ =
         pkt_ts_ - all_points_luminous_moment_718h_[resolution_index][all_points_luminous_moment_718h_[resolution_index].size() - 1];
     this->last_point_ts_ = pkt_ts_;
@@ -451,6 +476,7 @@ inline bool DecoderVanjee718H<T_PointCloud>::decodeMsopPkt_1(const uint8_t *pack
         }
         setTimestamp(point, point_cloud_value_[i].timestamp);
         setRing(point, point_cloud_value_[i].ring);
+        setTag(point, point_cloud_value_[i].tag);
 #ifdef ENABLE_GTEST
         setPointId(point, i);
         setHorAngle(point, ((int32_t)((180 + i * 0.25) * 1000) % 360000) / 1000.0);
@@ -506,6 +532,8 @@ void DecoderVanjee718H<T_PointCloud>::processDifopPkt(std::shared_ptr<ProtocolBa
 
   if (*sp_cmd == *(CmdRepository718H::CreateInstance()->sp_scan_data_get_)) {
     p = std::make_shared<Protocol_ScanDataGet718H>();
+  } else if (*sp_cmd == *(CmdRepository718H::CreateInstance()->sp_firmware_version_get_)) {
+    p = std::make_shared<Protocol_FirmwareVersionGet718H>();
   } else {
     return;
   }
@@ -520,6 +548,26 @@ void DecoderVanjee718H<T_PointCloud>::processDifopPkt(std::shared_ptr<ProtocolBa
       scan_data_recv_flag_ = true;
       Decoder<T_PointCloud>::angles_ready_ = true;
     }
+  } else if (typeid(*params) == typeid(Params_FirmwareVersion718H)) {
+    (*(Decoder<T_PointCloud>::get_difo_ctrl_map_ptr_))[sp_cmd->GetCmdKey()].setStopFlag(true);
+    std::shared_ptr<Params_FirmwareVersion718H> param = std::dynamic_pointer_cast<Params_FirmwareVersion718H>(params);
+
+    if (get_lidar_param_.count((uint16_t)LidarParam::firmware_version) > 0) {
+      get_lidar_param_[(uint16_t)LidarParam::firmware_version] = param->firmware_version_;
+    } else {
+      get_lidar_param_.emplace((uint16_t)LidarParam::firmware_version, param->firmware_version_);
+    }
+
+    if (this->param_.send_lidar_param_enable) {
+      LidarParameterInterface lidar_param;
+      lidar_param.cmd_id = (uint16_t)LidarParam::firmware_version;
+      lidar_param.cmd_type = 0;
+      lidar_param.repeat_interval = 0;
+      this->getLidarParameterDataFormat(lidar_param, get_lidar_param_);
+      this->lidarParameterPublish(lidar_param, this->prev_pkt_ts_);
+    }
+
+    WJ_INFOL << "Get lidar firmware version succ ( " << param->firmware_version_ << " )" << WJ_REND;
   } else {
     WJ_WARNING << "Unknown Params Type..." << WJ_REND;
   }

@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -124,11 +124,9 @@ typedef struct _Vanjee719C10And20MsopPkt {
 template <typename T_PointCloud>
 class DecoderVanjee719C : public DecoderMech<T_PointCloud> {
  private:
-  std::vector<std::vector<double>> all_points_luminous_moment_719c_;  // Cache 4 channels with a circular
-                                                                      // point cloud time difference
+  std::vector<std::vector<double>> all_points_luminous_moment_719c_;  // Cache 4 channels with a circular point cloud time difference
   const double luminous_period_of_ld_ = 0.000055555;                  // Time interval at adjacent horizontal angles
-  const double luminous_period_of_adjacent_ld_ = 0.000013888;         // Time interval between adjacent vertical angles within the
-                                                                      // group
+  const double luminous_period_of_adjacent_ld_ = 0.000013888;         // Time interval between adjacent vertical angles within the group
 
   int32_t azimuth_cur_ = -1.0;
   int32_t pre_frame_id_ = -1;
@@ -186,6 +184,10 @@ inline DecoderVanjee719C<T_PointCloud>::DecoderVanjee719C(const WJDecoderParam &
 
   this->packet_duration_ = FRAME_DURATION / SINGLE_PKT_NUM;
   split_strategy_ = std::make_shared<SplitStrategyByBlock>(0);
+
+  this->start_angle_ = this->param_.start_angle * 1000;
+  this->end_angle_ = this->param_.end_angle * 1000;
+
   initLdLuminousMoment();
 }
 
@@ -272,6 +274,9 @@ inline bool DecoderVanjee719C<T_PointCloud>::decodeMsopPkt(const uint8_t *pkt, s
 
 template <typename T_PointCloud>
 inline bool DecoderVanjee719C<T_PointCloud>::decodeMsopPkt_20HzOld(const uint8_t *packet, size_t size) {
+  if (!this->param_.point_cloud_enable)
+    return false;
+
   Vanjee719C20MsopPkt &pkt = (*(Vanjee719C20MsopPkt *)packet);
   pkt.ToLittleEndian();
 
@@ -288,10 +293,8 @@ inline bool DecoderVanjee719C<T_PointCloud>::decodeMsopPkt_20HzOld(const uint8_t
   else {
     double gapTime1900_1970 = (25567LL * 24 * 3600);
     pkt_ts = (double)pkt.second - gapTime1900_1970 + ((double)pkt.subsecond * 0.23283 * 1e-9);
+    pkt_ts = pkt_ts < 0 ? 0 : pkt_ts;
   }
-
-  if (pkt_ts < 0)
-    pkt_ts = 0;
 
   uint8_t line_num = 4;
   int32_t resolution_index = 1;
@@ -358,13 +361,13 @@ inline bool DecoderVanjee719C<T_PointCloud>::decodeMsopPkt_20HzOld(const uint8_t
 
     int32_t azimuth_index = (angle_horiz_final + 180000) % 360000;
 
-    int32_t angle_horiz_mask = (360000 - azimuth_index) % 360000;
-    if (this->param_.start_angle < this->param_.end_angle) {
-      if (angle_horiz_mask < this->param_.start_angle * 1000 || angle_horiz_mask > this->param_.end_angle * 1000) {
+    int32_t angle_horiz_mask = 360000 - azimuth_index;
+    if (this->start_angle_ < this->end_angle_) {
+      if (angle_horiz_mask < this->start_angle_ || angle_horiz_mask > this->end_angle_) {
         distance = 0;
       }
     } else {
-      if (angle_horiz_mask > this->param_.end_angle * 1000 && angle_horiz_mask < this->param_.start_angle * 1000) {
+      if (angle_horiz_mask > this->end_angle_ && angle_horiz_mask < this->start_angle_) {
         distance = 0;
       }
     }
@@ -402,6 +405,7 @@ inline bool DecoderVanjee719C<T_PointCloud>::decodeMsopPkt_20HzOld(const uint8_t
     }
     setTimestamp(point, timestamp_point);
     setRing(point, chan_id);
+    setTag(point, 0);
 #ifdef ENABLE_GTEST
     setPointId(point, point_id);
     setHorAngle(point, azimuth_index / 1000.0);
@@ -430,6 +434,9 @@ inline bool DecoderVanjee719C<T_PointCloud>::decodeMsopPkt_20HzOld(const uint8_t
 
 template <typename T_PointCloud>
 inline bool DecoderVanjee719C<T_PointCloud>::decodeMsopPkt_10HzAnd20Hz(const uint8_t *packet, size_t size) {
+  if (!this->param_.point_cloud_enable)
+    return false;
+
   Vanjee719C10And20MsopPkt &pkt = (*(Vanjee719C10And20MsopPkt *)packet);
   pkt.ToLittleEndian();
 
@@ -446,10 +453,8 @@ inline bool DecoderVanjee719C<T_PointCloud>::decodeMsopPkt_10HzAnd20Hz(const uin
   else {
     double gapTime1900_1970 = (25567LL * 24 * 3600);
     pkt_ts = (double)pkt.second - gapTime1900_1970 + ((double)pkt.subsecond * 0.23283 * 1e-9);
+    pkt_ts = pkt_ts < 0 ? 0 : pkt_ts;
   }
-
-  if (pkt_ts < 0)
-    pkt_ts = 0;
 
   uint8_t line_num = 4;
   int32_t resolution_index = 0;
@@ -549,13 +554,13 @@ inline bool DecoderVanjee719C<T_PointCloud>::decodeMsopPkt_10HzAnd20Hz(const uin
 
     int32_t azimuth_index = (angle_horiz_final + 180000) % 360000;
 
-    int32_t angle_horiz_mask = (360000 - azimuth_index) % 360000;
-    if (this->param_.start_angle < this->param_.end_angle) {
-      if (angle_horiz_mask < this->param_.start_angle * 1000 || angle_horiz_mask > this->param_.end_angle * 1000) {
+    int32_t angle_horiz_mask = 360000 - azimuth_index;
+    if (this->start_angle_ < this->end_angle_) {
+      if (angle_horiz_mask < this->start_angle_ || angle_horiz_mask > this->end_angle_) {
         distance = 0;
       }
     } else {
-      if (angle_horiz_mask > this->param_.end_angle * 1000 && angle_horiz_mask < this->param_.start_angle * 1000) {
+      if (angle_horiz_mask > this->end_angle_ && angle_horiz_mask < this->start_angle_) {
         distance = 0;
       }
     }
@@ -585,6 +590,7 @@ inline bool DecoderVanjee719C<T_PointCloud>::decodeMsopPkt_10HzAnd20Hz(const uin
       setIntensity(point, intensity);
       setTimestamp(point, timestamp_point);
       setRing(point, chan_id);
+      setTag(point, 0);
 #ifdef ENABLE_GTEST
       setPointId(point, point_id);
       setHorAngle(point, azimuth_index / 1000.0);
@@ -607,6 +613,7 @@ inline bool DecoderVanjee719C<T_PointCloud>::decodeMsopPkt_10HzAnd20Hz(const uin
       setIntensity(point, 0.0);
       setTimestamp(point, timestamp_point);
       setRing(point, chan_id);
+      setTag(point, 0);
 #ifdef ENABLE_GTEST
       setPointId(point, point_id);
       setHorAngle(point, azimuth_index / 1000.0);
@@ -639,11 +646,11 @@ void DecoderVanjee719C<T_PointCloud>::processDifopPkt(std::shared_ptr<ProtocolBa
   std::shared_ptr<ProtocolAbstract719C> p;
   std::shared_ptr<CmdClass> sp_cmd = std::make_shared<CmdClass>(protocol->MainCmd, protocol->SubCmd);
 
-  if (*sp_cmd == *(CmdRepository719C::CreateInstance()->Sp_ScanDataGet)) {
+  if (*sp_cmd == *(CmdRepository719C::CreateInstance()->sp_scan_data_get_)) {
     p = std::make_shared<Protocol_ScanDataGet719C>();
-  } else if (*sp_cmd == *(CmdRepository719C::CreateInstance()->Sp_HeartBeat_Tcp)) {
+  } else if (*sp_cmd == *(CmdRepository719C::CreateInstance()->sp_heart_beat_tcp_)) {
     p = std::make_shared<Protocol_HeartBeat719CTcp>();
-  } else if (*sp_cmd == *(CmdRepository719C::CreateInstance()->Sp_HeartBeat_Udp)) {
+  } else if (*sp_cmd == *(CmdRepository719C::CreateInstance()->sp_heart_beat_udp_)) {
     p = std::make_shared<Protocol_HeartBeat719CUdp>();
   } else {
     return;

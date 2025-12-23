@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -48,6 +48,7 @@ class CmdRepository720_32 {
   const std::shared_ptr<CmdClass> sp_imu_line_Param_get_ = std::make_shared<CmdClass>(0x06, 0x12);
   const std::shared_ptr<CmdClass> sp_imu_add_Param_get_ = std::make_shared<CmdClass>(0x06, 0x14);
   const std::shared_ptr<CmdClass> sp_temperature_param_get_ = std::make_shared<CmdClass>(0x04, 0x02);
+  const std::shared_ptr<CmdClass> sp_ld_eccentricity_param_get_ = std::make_shared<CmdClass>(0x05, 0x1a);
   static CmdRepository720_32* CreateInstance() {
     if (p_CmdRepository720_32 == nullptr)
       p_CmdRepository720_32 = new CmdRepository720_32();

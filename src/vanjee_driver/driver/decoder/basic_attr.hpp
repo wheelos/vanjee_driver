@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -43,9 +43,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <ctime>
 #include <fstream>
 #include <functional>
+#include <iomanip>
 #include <mutex>
+#include <sstream>
 
 #include <vanjee_driver/common/wj_common.hpp>
 namespace vanjee {
@@ -65,7 +68,7 @@ typedef struct {
 
 } WJTimestampUTC;
 #pragma pack(pop)
-#ifdef ENABLE_STAMP_WITH_LOCAL
+#ifdef ENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE
 inline long getTimezone(void) {
   static long tzone = 0;
   static bool tzoneReady = false;
@@ -91,7 +94,7 @@ inline uint64_t parseTimeUTCWithUs_BigEndian(const WJTimestampUTC *tsUtc) {
     us += tsUtc->ss[i];
   }
 
-#ifdef ENABLE_STAMP_WITH_LOCAL
+#ifdef ENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE
   sec -= getTimezone();
 #endif
 
@@ -112,7 +115,7 @@ inline uint64_t parseTimeUTCWithUs(const WJTimestampUTC *tsUtc) {
     us += tsUtc->ss[i];
   }
 
-#ifdef ENABLE_STAMP_WITH_LOCAL
+#ifdef ENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE
   sec -= getTimezone();
 #endif
 
@@ -133,6 +136,7 @@ inline void createTimeUTCWithUs(uint64_t us, WJTimestampUTC *tsUtc) {
     usec >>= 8;
   }
 }
+
 inline uint64_t parseTimeYMD(const WJTimestampYMD *tsYmd) {
   std::tm stm;
   memset(&stm, 0, sizeof(stm));
@@ -157,7 +161,7 @@ inline uint64_t parseTimeYMD(const WJTimestampYMD *tsYmd) {
     << std::endl;
 #endif
 
-#ifdef ENABLE_STAMP_WITH_LOCAL
+#ifdef ENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE
   sec -= getTimezone();
 #endif
 
@@ -170,7 +174,7 @@ inline void createTimeYMD(uint64_t usec, WJTimestampYMD *tsYmd) {
 
   uint64_t sec = tot_ms / 1000;
 
-#ifdef ENABLE_STAMP_WITH_LOCAL
+#ifdef ENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE
   sec += getTimezone();
 #endif
 
@@ -204,6 +208,20 @@ inline uint64_t getTimeHost(void) {
   std::chrono::duration<uint64_t, std::ratio<1l, 1000000l>> t_us =
       std::chrono::duration_cast<std::chrono::duration<uint64_t, std::ratio<1l, 1000000l>>>(t_s);
   return t_us.count();
+}
+
+inline std::string getHostDatetime(void) {
+  auto now = std::chrono::system_clock::now();
+  auto time_t_now = std::chrono::system_clock::to_time_t(now);
+  std::tm local_time = *std::localtime(&time_t_now);
+  auto duration = now.time_since_epoch();
+  auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count() % 1000000;
+
+  std::stringstream ss;
+  ss << std::put_time(&local_time, "%Y-%m-%d %H:%M:%S");
+  ss << "+" << std::setfill('0') << std::setw(6) << microseconds << " ";
+
+  return ss.str();
 }
 
 }  // namespace lidar

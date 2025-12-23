@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -40,6 +40,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vanjee_driver/driver/decoder/decoder_mech.hpp>
 #include <vanjee_driver/driver/decoder/decoder_packet_base/decoder_packet_base.hpp>
 #include <vanjee_driver/driver/decoder/wlr750/protocol/frames/cmd_repository_750.hpp>
+#include <vanjee_driver/driver/decoder/wlr750/protocol/frames/protocol_imu_packet_get.hpp>
 #include <vanjee_driver/driver/decoder/wlr750/protocol/frames/protocol_protocol_version_set.hpp>
 #include <vanjee_driver/driver/difop/cmd_class.hpp>
 #include <vanjee_driver/driver/difop/protocol_abstract.hpp>
@@ -53,14 +54,14 @@ typedef struct _Vanjee750ABlockXYZ {
   int16_t y;
   int16_t z;
   uint32_t front_edg_value1;
-  // uint32_t pulsewidth1;
-  uint16_t pulsewidth1;
+  // uint32_t pulse_width1;
+  uint16_t pulse_width1;
   uint8_t echo1_flag;
   uint8_t remain1;
   uint16_t peak_value1;
   uint8_t echo_num1;
   uint32_t front_edg_value2;
-  uint32_t pulsewidth2;
+  uint32_t pulse_width2;
   uint16_t peak_value2;
   uint8_t echo_num2;
 
@@ -102,14 +103,14 @@ typedef struct _Vanjee750ABlockDistance {
   uint8_t hor_id;
   uint8_t ver_id;
   uint32_t front_edg_value1;
-  // uint32_t pulsewidth1;
-  uint16_t pulsewidth1;
+  // uint32_t pulse_width1;
+  uint16_t pulse_width1;
   uint8_t echo1_flag;
   uint8_t remain1;
   uint16_t peak_value1;
   uint8_t echo_num1;
   uint32_t front_edg_value2;
-  uint32_t pulsewidth2;
+  uint32_t pulse_width2;
   uint16_t peak_value2;
   uint8_t echo_num2;
 
@@ -207,7 +208,7 @@ typedef struct _Vanjee750MsopPkt {
 
   Vanjee750MsopPktFuncSafe func_safe;
 
-  uint8_t digital_signatur[32];
+  uint8_t digital_signature[32];
   uint8_t check[2];
   uint8_t tail[2];
 
@@ -229,6 +230,18 @@ typedef struct _Vanjee750DataBlock {
   Vanjee750DataUnit channel[150];
 } Vanjee750DataBlock;
 
+typedef struct _Vanjee750CDataUnit {
+  uint16_t distance;
+  uint8_t reflectivity;
+  uint16_t Confidence;
+} Vanjee750CDataUnit;
+
+typedef struct _Vanjee750CDataBlock {
+  uint8_t start_flag;
+  uint8_t remain3[4];
+  Vanjee750CDataUnit channel[256];
+} Vanjee750CDataBlock;
+
 #pragma pack(pop)
 template <typename T_PointCloud>
 class DecoderVanjee750 : public DecoderMech<T_PointCloud> {
@@ -237,13 +250,15 @@ class DecoderVanjee750 : public DecoderMech<T_PointCloud> {
 
   uint32_t frame_id_trans_pre_ = 0;
   uint16_t pre_operate_frequency_ = 0;
+  uint8_t pre_data_format_ = 0;
   uint32_t pre_circle_id_ = 0;
   int32_t pre_frame_id_ = -1;
   ChanAngles chan_angles_;
   uint8_t publish_mode_ = 0;
-  bool pubilsh_flag_ = false;
+  bool publish_flag_ = false;
   bool first_pkg_flag_ = true;
-  uint16_t pre_operate_frequency = 0;
+
+  double pre_imu_timestamp_ = 0.0;
 
   std::vector<::vector<double>> lidar_hor_angle_;
   std::vector<::vector<double>> lidar_ver_angle_;
@@ -254,11 +269,15 @@ class DecoderVanjee750 : public DecoderMech<T_PointCloud> {
   int loadFromFile(uint16_t row, uint16_t col, const std::string &angle_path, std::vector<std::vector<double>> &angles_value);
 
   void configParamsInit(uint16_t row, uint16_t col);
-  void initLdLuminousMoment(uint16_t operate_frequency, uint16_t row, uint16_t col);
+  void initLdLuminousMoment(uint16_t operate_frequency, uint16_t row, uint16_t col, uint8_t data_format = 2);
 
   DecoderPacketBase<T_PointCloud, Vanjee750DataBlock, Vanjee750DataUnit> *decoder_packet_base_ = nullptr;
-  void updateAngleAndTimestampInfoCallback(DataBlockAngleAndTimestampInfo &data_block_angle_and_timestamp_info, Vanjee750DataBlock *data_block);
+  DecoderPacketBase<T_PointCloud, Vanjee750CDataBlock, Vanjee750CDataUnit> *decoder_packet_base_c_ = nullptr;
+  void update750BAngleAndTimestampInfoCallback(DataBlockAngleAndTimestampInfo &data_block_angle_and_timestamp_info, Vanjee750DataBlock *data_block);
+  void update750CAngleAndTimestampInfoCallback(DataBlockAngleAndTimestampInfo &data_block_angle_and_timestamp_info, Vanjee750CDataBlock *data_block);
+  void update750EAngleAndTimestampInfoCallback(DataBlockAngleAndTimestampInfo &data_block_angle_and_timestamp_info, Vanjee750DataBlock *data_block);
   void decoderDataUnitCallback(Vanjee750DataUnit *data_unit, PointInfo &point_info);
+  void decoderDataUnitCCallback(Vanjee750CDataUnit *data_unit, PointInfo &point_info);
 
  public:
   constexpr static double FRAME_DURATION = 0.1;
@@ -267,29 +286,68 @@ class DecoderVanjee750 : public DecoderMech<T_PointCloud> {
   virtual void processDifopPkt(std::shared_ptr<ProtocolBase> protocol);
   virtual ~DecoderVanjee750() {  // = default;
     delete decoder_packet_base_;
+    delete decoder_packet_base_c_;
   }
   explicit DecoderVanjee750(const WJDecoderParam &param);
 
   bool decodeMsopPkt750AXYZ(const uint8_t *pkt, size_t size);
   bool decodeMsopPkt750ADistance(const uint8_t *pkt, size_t size);
-  bool decodeMsopPktBaseProtocol(const uint8_t *pkt, size_t size);
+  bool decodeMsopPkt750BBaseProtocol(const uint8_t *pkt, size_t size);
+  bool decodeMsopPkt750CBaseProtocol(const uint8_t *pkt, size_t size);
+  bool decodeMsopPkt750EBaseProtocol(const uint8_t *pkt, size_t size);
 };
 
 template <typename T_PointCloud>
-void DecoderVanjee750<T_PointCloud>::initLdLuminousMoment(uint16_t operate_frequency, uint16_t row, uint16_t col) {
-  if (operate_frequency != pre_operate_frequency) {
+void DecoderVanjee750<T_PointCloud>::initLdLuminousMoment(uint16_t operate_frequency, uint16_t row, uint16_t col, uint8_t data_format) {
+  if (operate_frequency != pre_operate_frequency_ || data_format != pre_data_format_) {
     size_t point_cloud_size = row * col;
-    double offset = 1.0 / operate_frequency / (col / 4);
     all_points_luminous_moment_750_.resize(point_cloud_size);
 
-    for (int i = 0; i < col; i++) {
-      for (int j = 0; j < row; j++) {
-        all_points_luminous_moment_750_[i * row + j] = (col / 4) * offset;
+    if (decoder_packet_base_->decoder_packet_general_version_base_ptr_ != nullptr) {
+      double offset = 1.0 / operate_frequency / (col / 4);
+
+      for (int i = 0; i < col; i++) {
+        for (int j = 0; j < row; j++) {
+          all_points_luminous_moment_750_[i * row + j] = (i / 4) * offset;
+        }
       }
+      decoder_packet_base_->decoder_packet_general_version_base_ptr_->all_points_luminous_moment_ = all_points_luminous_moment_750_;
     }
 
-    decoder_packet_base_->decoder_packet_general_version_base_ptr_->all_points_luminous_moment_ = all_points_luminous_moment_750_;
-    pre_operate_frequency = operate_frequency;
+    if (decoder_packet_base_c_->decoder_packet_general_version_base_ptr_ != nullptr) {
+      if (data_format == 1) {
+        // row 1-192
+        uint32_t group_num = 16;  // 256 / 16
+        uint32_t block_num_of_group = 32;
+        double block_offset_ts = 3.125e-3;
+        double peer_group_offset_ts = 1.0 / operate_frequency / group_num;
+        double peer_block_offset_ts = block_offset_ts / block_num_of_group;
+
+        for (int col_index = 0; col_index < col; col_index++) {
+          for (int row_index = 0; row_index < row; row_index++) {
+            all_points_luminous_moment_750_[col_index * row + row_index] =
+                ((col_index / 16) * peer_group_offset_ts) + ((row_index / block_num_of_group) * peer_block_offset_ts);
+          }
+        }
+      } else if (data_format == 2) {
+        // col 1-256
+        uint32_t group_num = 32;  // 192/6;
+        uint32_t block_num_of_group = 16;
+        double block_offset_ts = 3.125e-3;
+        double peer_group_offset_ts = 1.0 / operate_frequency / group_num;
+        double peer_block_offset_ts = block_offset_ts / block_num_of_group;
+
+        for (int row_index = 0; row_index < row; row_index++) {
+          for (int col_index = 0; col_index < col; col_index++) {
+            all_points_luminous_moment_750_[row_index * col + col_index] =
+                ((row_index / 6) * peer_group_offset_ts) + ((col_index / block_num_of_group) * peer_block_offset_ts);
+          }
+        }
+      }
+      decoder_packet_base_c_->decoder_packet_general_version_base_ptr_->all_points_luminous_moment_ = all_points_luminous_moment_750_;
+    }
+    pre_operate_frequency_ = operate_frequency;
+    pre_data_format_ = data_format;
   }
 }
 
@@ -334,10 +392,24 @@ inline DecoderVanjee750<T_PointCloud>::DecoderVanjee750(const WJDecoderParam &pa
   if (param.max_distance < param.min_distance)
     WJ_WARNING << "config params (max distance < min distance)!" << WJ_REND;
 
+  if (param.imu_enable != -1) {
+    this->point_cloud_ready_ = false;
+    WJ_INFO << "Waiting for IMU calibration..." << WJ_REND;
+  } else {
+    this->point_cloud_ready_ = true;
+  }
+
+  this->m_imu_params_get_ = std::make_shared<ImuParamGet>(90, param.transform_param);
+
   publish_mode_ = param.publish_mode;
   this->packet_duration_ = FRAME_DURATION / SINGLE_PKT_NUM;
   split_strategy_ = std::make_shared<SplitStrategyByBlock>(0);
+
+  this->start_angle_ = this->param_.start_angle * 1000;
+  this->end_angle_ = this->param_.end_angle * 1000;
+
   decoder_packet_base_ = new DecoderPacketBase<T_PointCloud, Vanjee750DataBlock, Vanjee750DataUnit>(this);
+  decoder_packet_base_c_ = new DecoderPacketBase<T_PointCloud, Vanjee750CDataBlock, Vanjee750CDataUnit>(this);
 }
 
 template <typename T_PointCloud>
@@ -378,16 +450,20 @@ template <typename T_PointCloud>
 inline bool DecoderVanjee750<T_PointCloud>::decodeMsopPkt(const uint8_t *pkt, size_t size) {
   bool ret = false;
   uint16_t l_pktheader = pkt[0] << 8 | pkt[1];
+  uint16_t version_id = pkt[6] << 8 | pkt[7];
   switch (l_pktheader) {
     case 0xFFCC: {
       if (size == 1384) {
         ret = decodeMsopPkt750AXYZ(pkt, size);
-      } else if (size == 739) {
-        configParamsInit(150, 300);
-        ret = decodeMsopPktBaseProtocol(pkt, size);
-      } else {
+      } else if (size == 739 && version_id == 0x0100) {
         configParamsInit(150, 360);
-        ret = decodeMsopPktBaseProtocol(pkt, size);
+        ret = decodeMsopPkt750BBaseProtocol(pkt, size);
+      } else if ((size == 1419 || size == 1099) && version_id == 0x0101) {
+        configParamsInit(212, 276);
+        ret = decodeMsopPkt750CBaseProtocol(pkt, size);
+      } else if (size == 739) {
+        configParamsInit(190, 340);
+        ret = decodeMsopPkt750EBaseProtocol(pkt, size);
       }
 
     } break;
@@ -422,16 +498,17 @@ inline bool DecoderVanjee750<T_PointCloud>::decodeMsopPkt750AXYZ(const uint8_t *
     double sec = pkt.difop.second;
     double usec = pkt.difop.microsecond;
     pkt_ts = sec + usec * 1e-6;
+    pkt_ts = pkt_ts < 0 ? 0 : pkt_ts;
   }
 
   if (split_strategy_->newBlock(pkt.difop.frame_id)) {
-    if (pubilsh_flag_) {
+    if (publish_flag_) {
       this->cb_split_frame_(112, this->cloudTs());
       this->first_point_ts_ = pkt_ts;
       ret = true;
-      pubilsh_flag_ = false;
+      publish_flag_ = false;
     } else {
-      pubilsh_flag_ = true;
+      publish_flag_ = true;
     }
   }
 
@@ -463,6 +540,7 @@ inline bool DecoderVanjee750<T_PointCloud>::decodeMsopPkt750AXYZ(const uint8_t *
       }
       setTimestamp(point, pkt_ts);
       setRing(point, pkt.difop.ver_angle);
+      setTag(point, 0);
 
       this->point_cloud_->points.emplace_back(point);
     }
@@ -490,21 +568,22 @@ inline bool DecoderVanjee750<T_PointCloud>::decodeMsopPkt750ADistance(const uint
     double sec = pkt.difop.second;
     double usec = pkt.difop.microsecond;
     pkt_ts = sec + usec * 1e-6;
+    pkt_ts = pkt_ts < 0 ? 0 : pkt_ts;
   }
 
   if (split_strategy_->newBlock(pkt.difop.frame_id)) {
-    if (pubilsh_flag_) {
+    if (publish_flag_) {
       this->cb_split_frame_(112, this->cloudTs());
       this->first_point_ts_ = pkt_ts;
       ret = true;
-      pubilsh_flag_ = false;
+      publish_flag_ = false;
     } else {
-      pubilsh_flag_ = true;
+      publish_flag_ = true;
     }
   }
 
   if (lidar_hor_angle_.size() < 112 || lidar_ver_angle_.size() < 112) {
-    WJ_ERROR << "Please configure parameter table path!Absolute Path (.../param)" << WJ_REND;
+    WJ_ERROR << "Please configure parameter table path!Absolute Path (<PROJECT_PATH>/src/vanjee_lidar_sdk/param)" << WJ_REND;
     return ret;
   }
   double timestamp_point = 0.0;
@@ -523,12 +602,12 @@ inline bool DecoderVanjee750<T_PointCloud>::decodeMsopPkt750ADistance(const uint
       timestamp_point = all_points_luminous_moment_750_[point_id] - all_points_luminous_moment_750_[all_points_luminous_moment_750_.size() - 1];
     }
 
-    if (this->param_.start_angle < this->param_.end_angle) {
-      if (angle_horiz < this->param_.start_angle * 1000 || angle_horiz > this->param_.end_angle * 1000) {
+    if (this->start_angle_ < this->end_angle_) {
+      if (angle_horiz < this->start_angle_ || angle_horiz > this->end_angle_) {
         distance = 0;
       }
     } else {
-      if (angle_horiz > this->param_.end_angle * 1000 && angle_horiz < this->param_.start_angle * 1000) {
+      if (angle_horiz > this->end_angle_ && angle_horiz < this->start_angle_) {
         distance = 0;
       }
     }
@@ -565,6 +644,7 @@ inline bool DecoderVanjee750<T_PointCloud>::decodeMsopPkt750ADistance(const uint
       }
       setTimestamp(point, timestamp_point);
       setRing(point, row_index);
+      setTag(point, 0);
 #ifdef ENABLE_GTEST
       setPointId(point, point_id);
       setHorAngle(point, angle_horiz / 1000.0);
@@ -580,8 +660,8 @@ inline bool DecoderVanjee750<T_PointCloud>::decodeMsopPkt750ADistance(const uint
 }
 
 template <typename T_PointCloud>
-void DecoderVanjee750<T_PointCloud>::updateAngleAndTimestampInfoCallback(DataBlockAngleAndTimestampInfo &data_block_angle_and_timestamp_info,
-                                                                         Vanjee750DataBlock *data_block) {
+void DecoderVanjee750<T_PointCloud>::update750BAngleAndTimestampInfoCallback(DataBlockAngleAndTimestampInfo &data_block_angle_and_timestamp_info,
+                                                                             Vanjee750DataBlock *data_block) {
   initLdLuminousMoment((uint16_t)(data_block_angle_and_timestamp_info.operate_frequency_ * 0.01),
                        data_block_angle_and_timestamp_info.row_channel_num_, data_block_angle_and_timestamp_info.col_channel_num_);
 
@@ -590,8 +670,7 @@ void DecoderVanjee750<T_PointCloud>::updateAngleAndTimestampInfoCallback(DataBlo
     if (!this->param_.use_lidar_clock) {
       uint16_t group_id = (data_block_angle_and_timestamp_info.packet_id_ + 3) / 4;
       data_block_angle_and_timestamp_info.first_point_ts_ -= group_id * (1 / (data_block_angle_and_timestamp_info.operate_frequency_ * 0.01) /
-                                                                         (data_block_angle_and_timestamp_info.col_channel_num_ / 4)) -
-                                                             all_points_luminous_moment_750_[1];
+                                                                         (data_block_angle_and_timestamp_info.col_channel_num_ / 4));
     } else {
       uint16_t group_id = (data_block_angle_and_timestamp_info.packet_id_ - 1) / 4;
       if (group_id > 0) {
@@ -617,14 +696,234 @@ void DecoderVanjee750<T_PointCloud>::updateAngleAndTimestampInfoCallback(DataBlo
             decoder_packet_base_->decoder_packet_general_version_base_ptr_->all_points_luminous_moment_[point_id] -
             decoder_packet_base_->decoder_packet_general_version_base_ptr_
                 ->all_points_luminous_moment_[decoder_packet_base_->decoder_packet_general_version_base_ptr_->all_points_luminous_moment_.size() - 1];
+
       int32_t hor_angle = (int32_t)(lidar_hor_angle_[row_index][col_index] * 1000 + 270000) % 360000;
       PointInfo point_info;
       // point_info.distance_ = 0;
       point_info.azimuth_ = hor_angle * 1e-3;
       point_info.elevation_ = lidar_ver_angle_[row_index][col_index];
+
       // point_info.reflectivity_ = 0;
       point_info.ring_ = chan_id + this->first_line_id_;
       point_info.timestamp_ = timestamp_point;
+      point_info.tag_ = 0;
+      point_info.id_ = point_id;
+      data_block_angle_and_timestamp_info.point_info_vector_.emplace_back(point_info);
+    }
+  }
+}
+
+template <typename T_PointCloud>
+void DecoderVanjee750<T_PointCloud>::update750CAngleAndTimestampInfoCallback(DataBlockAngleAndTimestampInfo &data_block_angle_and_timestamp_info,
+                                                                             Vanjee750CDataBlock *data_block) {
+  initLdLuminousMoment((uint16_t)(data_block_angle_and_timestamp_info.operate_frequency_ * 0.01),
+                       data_block_angle_and_timestamp_info.row_channel_num_, data_block_angle_and_timestamp_info.col_channel_num_,
+                       data_block_angle_and_timestamp_info.data_block_info_.data_block_packet_type_);
+
+  if (data_block_angle_and_timestamp_info.data_block_index_in_packet_ ==
+      data_block_angle_and_timestamp_info.data_block_info_.valid_data_block_num_in_packet_ - 1) {
+    if (!this->param_.use_lidar_clock) {
+      data_block_angle_and_timestamp_info.first_point_ts_ -=
+          (data_block_angle_and_timestamp_info.packet_id_ * data_block_angle_and_timestamp_info.data_block_info_.data_block_num_in_packet_ *
+           (1 / (data_block_angle_and_timestamp_info.operate_frequency_ * 0.01)));
+    } else {
+      data_block_angle_and_timestamp_info.first_point_ts_ -=
+          ((data_block_angle_and_timestamp_info.packet_id_ - 1) * data_block_angle_and_timestamp_info.data_block_info_.data_block_num_in_packet_ *
+           (1 / (data_block_angle_and_timestamp_info.operate_frequency_ * 0.01)));
+    }
+  }
+
+  uint8_t scan_direction = data_block_angle_and_timestamp_info.reserved_field_1_[0];
+  int16_t row_offset =
+      (int16_t)(data_block_angle_and_timestamp_info.reserved_field_2_[0] + (data_block_angle_and_timestamp_info.reserved_field_2_[1] << 8));
+  int16_t col_offset =
+      (int16_t)(data_block_angle_and_timestamp_info.reserved_field_2_[2] + (data_block_angle_and_timestamp_info.reserved_field_2_[3] << 8));
+  if (row_offset < -10 || row_offset > 10 || col_offset < -10 || col_offset > 10) {
+    WJ_WARNING << "angle table offset err" << WJ_REND;
+    return;
+  }
+
+  if (data_block_angle_and_timestamp_info.data_block_info_.data_block_packet_type_ == 2) {
+    for (int col_id = 0; col_id < data_block_angle_and_timestamp_info.data_block_info_.col_channel_num_in_data_block_; col_id++) {
+      int32_t row_index =
+          ((data_block_angle_and_timestamp_info.packet_id_ - 1) * data_block_angle_and_timestamp_info.data_block_info_.data_block_num_in_packet_ +
+           data_block_angle_and_timestamp_info.data_block_index_in_packet_) /
+          data_block_angle_and_timestamp_info.echo_num_;
+      int32_t col_index = col_id;
+      uint32_t point_id = row_index * data_block_angle_and_timestamp_info.data_block_info_.col_channel_num_in_data_block_ + col_index;
+      double timestamp_point = 0.0;
+      if (this->param_.ts_first_point) {
+        timestamp_point = decoder_packet_base_c_->decoder_packet_general_version_base_ptr_->all_points_luminous_moment_[point_id];
+      } else {
+        timestamp_point =
+            decoder_packet_base_c_->decoder_packet_general_version_base_ptr_->all_points_luminous_moment_[point_id] -
+            decoder_packet_base_c_->decoder_packet_general_version_base_ptr_
+                ->all_points_luminous_moment_[decoder_packet_base_c_->decoder_packet_general_version_base_ptr_->all_points_luminous_moment_.size() -
+                                              1];
+      }
+      PointInfo point_info;
+      double hor_angle = 0.0;
+      double ver_angle = 0.0;
+      if (scan_direction == 1) {
+        hor_angle = lidar_hor_angle_[row_index + row_offset + 10][col_index + col_offset + 10];
+        ver_angle = lidar_ver_angle_[row_index + row_offset + 10][col_index + col_offset + 10];
+      } else if (scan_direction == 2) {
+        hor_angle =
+            lidar_hor_angle_[row_index + row_offset + 10][lidar_hor_angle_[row_index + row_offset + 10].size() - 1 - (col_index - col_offset + 10)];
+        ver_angle =
+            lidar_ver_angle_[row_index + row_offset + 10][lidar_ver_angle_[row_index + row_offset + 10].size() - 1 - (col_index - col_offset + 10)];
+      } else if (scan_direction == 3) {
+        hor_angle = lidar_hor_angle_[lidar_hor_angle_.size() - 1 - (row_index - row_offset + 10)][col_index + col_offset + 10];
+        ver_angle = lidar_ver_angle_[lidar_ver_angle_.size() - 1 - (row_index - row_offset + 10)][col_index + col_offset + 10];
+      } else if (scan_direction == 4) {
+        hor_angle = lidar_hor_angle_[lidar_hor_angle_.size() - 1 - (row_index - row_offset + 10)]
+                                    [lidar_hor_angle_[row_index + row_offset + 10].size() - 1 - (col_index - col_offset + 10)];
+        ver_angle = lidar_ver_angle_[lidar_ver_angle_.size() - 1 - (row_index - row_offset + 10)]
+                                    [lidar_ver_angle_[row_index + row_offset + 10].size() - 1 - (col_index - col_offset + 10)];
+      }
+
+      point_info.azimuth_ = hor_angle;
+      point_info.elevation_ = ver_angle;
+      // point_info.distance_ = 0;
+      // point_info.reflectivity_ = 0;
+      if (scan_direction == 1 || scan_direction == 2) {
+        point_info.ring_ = (data_block_angle_and_timestamp_info.row_channel_num_ - (row_index + 1)) + this->first_line_id_;
+      } else {
+        point_info.ring_ = row_index + this->first_line_id_;
+      }
+      point_info.timestamp_ = timestamp_point;
+      point_info.tag_ = 0;
+      point_info.id_ = point_id;
+      data_block_angle_and_timestamp_info.point_info_vector_.emplace_back(point_info);
+    }
+  } else if (data_block_angle_and_timestamp_info.data_block_info_.data_block_packet_type_ == 1) {
+    for (int row_id = 0; row_id < data_block_angle_and_timestamp_info.data_block_info_.row_channel_num_in_data_block_; row_id++) {
+      int32_t col_index =
+          ((data_block_angle_and_timestamp_info.packet_id_ - 1) * data_block_angle_and_timestamp_info.data_block_info_.data_block_num_in_packet_ +
+           data_block_angle_and_timestamp_info.data_block_index_in_packet_) /
+          data_block_angle_and_timestamp_info.echo_num_;
+      int32_t row_index = row_id;
+      uint32_t point_id = col_index * data_block_angle_and_timestamp_info.data_block_info_.row_channel_num_in_data_block_ + row_index;
+      double timestamp_point = 0.0;
+      if (this->param_.ts_first_point) {
+        timestamp_point = decoder_packet_base_c_->decoder_packet_general_version_base_ptr_->all_points_luminous_moment_[point_id];
+      } else {
+        timestamp_point =
+            decoder_packet_base_c_->decoder_packet_general_version_base_ptr_->all_points_luminous_moment_[point_id] -
+            decoder_packet_base_c_->decoder_packet_general_version_base_ptr_
+                ->all_points_luminous_moment_[decoder_packet_base_c_->decoder_packet_general_version_base_ptr_->all_points_luminous_moment_.size() -
+                                              1];
+      }
+      PointInfo point_info;
+      double hor_angle = 0.0;
+      double ver_angle = 0.0;
+      if (scan_direction == 5) {
+        hor_angle = lidar_hor_angle_[row_index + row_offset + 10][col_index + col_offset + 10];
+        ver_angle = lidar_ver_angle_[row_index + row_offset + 10][col_index + col_offset + 10];
+      } else if (scan_direction == 6) {
+        hor_angle = lidar_hor_angle_[lidar_hor_angle_.size() - 1 - (row_index - row_offset + 10)][col_index + col_offset + 10];
+        ver_angle = lidar_ver_angle_[lidar_ver_angle_.size() - 1 - (row_index - row_offset + 10)][col_index + col_offset + 10];
+      } else if (scan_direction == 7) {
+        hor_angle =
+            lidar_hor_angle_[row_index + row_offset + 10][lidar_hor_angle_[row_index + row_offset + 10].size() - 1 - (col_index - col_offset + 10)];
+        ver_angle =
+            lidar_ver_angle_[row_index + row_offset + 10][lidar_ver_angle_[row_index + row_offset + 10].size() - 1 - (col_index - col_offset + 10)];
+      } else if (scan_direction == 8) {
+        hor_angle = lidar_hor_angle_[lidar_hor_angle_.size() - 1 - (row_index - row_offset + 10)]
+                                    [lidar_hor_angle_[row_index + row_offset + 10].size() - 1 - (col_index - col_offset + 10)];
+        ver_angle = lidar_ver_angle_[lidar_ver_angle_.size() - 1 - (row_index - row_offset + 10)]
+                                    [lidar_ver_angle_[row_index + row_offset + 10].size() - 1 - (col_index - col_offset + 10)];
+      }
+
+      point_info.azimuth_ = hor_angle;
+      point_info.elevation_ = ver_angle;
+      // point_info.distance_ = 0;
+      // point_info.reflectivity_ = 0;
+      if (scan_direction == 5 || scan_direction == 7) {
+        point_info.ring_ = (data_block_angle_and_timestamp_info.row_channel_num_ - (row_index + 1)) + this->first_line_id_;
+      } else {
+        point_info.ring_ = row_index + this->first_line_id_;
+      }
+      point_info.timestamp_ = timestamp_point;
+      point_info.tag_ = 0;
+      point_info.id_ = point_id;
+      data_block_angle_and_timestamp_info.point_info_vector_.emplace_back(point_info);
+    }
+  }
+}
+
+template <typename T_PointCloud>
+void DecoderVanjee750<T_PointCloud>::update750EAngleAndTimestampInfoCallback(DataBlockAngleAndTimestampInfo &data_block_angle_and_timestamp_info,
+                                                                             Vanjee750DataBlock *data_block) {
+  initLdLuminousMoment((uint16_t)(data_block_angle_and_timestamp_info.operate_frequency_ * 0.01),
+                       data_block_angle_and_timestamp_info.row_channel_num_, data_block_angle_and_timestamp_info.col_channel_num_);
+
+  if (data_block_angle_and_timestamp_info.data_block_index_in_packet_ ==
+      data_block_angle_and_timestamp_info.data_block_info_.valid_data_block_num_in_packet_ - 1) {
+    if (!this->param_.use_lidar_clock) {
+      uint16_t group_id = (data_block_angle_and_timestamp_info.packet_id_ + 3) / 4;
+      data_block_angle_and_timestamp_info.first_point_ts_ -= group_id * (1 / (data_block_angle_and_timestamp_info.operate_frequency_ * 0.01) /
+                                                                         (data_block_angle_and_timestamp_info.col_channel_num_ / 4));
+    } else {
+      uint16_t group_id = (data_block_angle_and_timestamp_info.packet_id_ - 1) / 4;
+      if (group_id > 0) {
+        data_block_angle_and_timestamp_info.first_point_ts_ -= group_id * (1 / (data_block_angle_and_timestamp_info.operate_frequency_ * 0.01) /
+                                                                           (data_block_angle_and_timestamp_info.col_channel_num_ / 4));
+      }
+    }
+  }
+
+  if (data_block_angle_and_timestamp_info.data_block_info_.data_block_packet_type_ == 1) {
+    uint8_t scan_direction = data_block_angle_and_timestamp_info.reserved_field_1_[0];
+    int16_t row_offset =
+        (int16_t)(data_block_angle_and_timestamp_info.reserved_field_2_[0] + (data_block_angle_and_timestamp_info.reserved_field_2_[1] << 8));
+    int16_t col_offset =
+        (int16_t)(data_block_angle_and_timestamp_info.reserved_field_2_[2] + (data_block_angle_and_timestamp_info.reserved_field_2_[3] << 8));
+    if (row_offset < -20 || row_offset > 20 || col_offset < -20 || col_offset > 20) {
+      WJ_WARNING << "angle table offset err" << WJ_REND;
+      return;
+    }
+
+    for (int chan_id = 0; chan_id < data_block_angle_and_timestamp_info.data_block_info_.row_channel_num_in_data_block_; chan_id++) {
+      int32_t col_index =
+          ((data_block_angle_and_timestamp_info.packet_id_ - 1) * data_block_angle_and_timestamp_info.data_block_info_.data_block_num_in_packet_ +
+           data_block_angle_and_timestamp_info.data_block_index_in_packet_) /
+          data_block_angle_and_timestamp_info.echo_num_;
+      int32_t row_index = chan_id;
+      uint32_t point_id = col_index * data_block_angle_and_timestamp_info.data_block_info_.row_channel_num_in_data_block_ + row_index;
+      double timestamp_point = 0.0;
+      if (this->param_.ts_first_point)
+        timestamp_point = decoder_packet_base_->decoder_packet_general_version_base_ptr_->all_points_luminous_moment_[point_id];
+      else
+        timestamp_point =
+            decoder_packet_base_->decoder_packet_general_version_base_ptr_->all_points_luminous_moment_[point_id] -
+            decoder_packet_base_->decoder_packet_general_version_base_ptr_
+                ->all_points_luminous_moment_[decoder_packet_base_->decoder_packet_general_version_base_ptr_->all_points_luminous_moment_.size() - 1];
+
+      int32_t hor_angle = 0;
+      if (scan_direction == 0) {
+        hor_angle = (int32_t)(lidar_hor_angle_[row_index + row_offset + 20][col_index + col_offset + 20] * 1000 + 270000) % 360000;
+      } else {
+        hor_angle = (int32_t)(lidar_hor_angle_[row_index + row_offset + 20]
+                                              [lidar_hor_angle_[row_index + row_offset + 20].size() - 1 - (col_index + col_offset + 20)] *
+                                  1000 +
+                              270000) %
+                    360000;
+      }
+      PointInfo point_info;
+      // point_info.distance_ = 0;
+      point_info.azimuth_ = hor_angle * 1e-3;
+      if (scan_direction == 0) {
+        point_info.elevation_ = lidar_ver_angle_[row_index + row_offset + 20][col_index + col_offset + 20];
+      } else {
+        point_info.elevation_ =
+            lidar_ver_angle_[row_index + row_offset + 20][lidar_ver_angle_[row_index + row_offset + 20].size() - 1 - (col_index + col_offset + 20)];
+      }
+
+      // point_info.reflectivity_ = 0;
+      point_info.ring_ = chan_id + this->first_line_id_;
+      point_info.timestamp_ = timestamp_point;
+      point_info.tag_ = 0;
       point_info.id_ = point_id;
       data_block_angle_and_timestamp_info.point_info_vector_.emplace_back(point_info);
     }
@@ -639,13 +938,40 @@ void DecoderVanjee750<T_PointCloud>::decoderDataUnitCallback(Vanjee750DataUnit *
   point_info.reflectivity_ = data_unit->reflectivity;
   // point_info.ring_ = point_info.ring_;
   // point_info.timestamp_ = point_info.timestamp_;
+  // point_info.tag_ = point_info.tag_;
   // point_info.id_ = point_info.id_;
 }
 
 template <typename T_PointCloud>
-inline bool DecoderVanjee750<T_PointCloud>::decodeMsopPktBaseProtocol(const uint8_t *pkt, size_t size) {
+void DecoderVanjee750<T_PointCloud>::decoderDataUnitCCallback(Vanjee750CDataUnit *data_unit, PointInfo &point_info) {
+  point_info.distance_ = data_unit->distance;
+  // point_info.azimuth_ = point_info.azimuth_;
+  // point_info.elevation_ = point_info.elevation_;
+  point_info.reflectivity_ = data_unit->reflectivity;
+  // point_info.ring_ = point_info.ring_;
+  // point_info.timestamp_ = point_info.timestamp_;
+  // point_info.tag_ = point_info.tag_;
+  // point_info.id_ = point_info.id_;
+}
+
+template <typename T_PointCloud>
+inline bool DecoderVanjee750<T_PointCloud>::decodeMsopPkt750BBaseProtocol(const uint8_t *pkt, size_t size) {
   return decoder_packet_base_->decoderPacket(
-      pkt, size, std::bind(&DecoderVanjee750::updateAngleAndTimestampInfoCallback, this, std::placeholders::_1, std::placeholders::_2),
+      pkt, size, std::bind(&DecoderVanjee750::update750BAngleAndTimestampInfoCallback, this, std::placeholders::_1, std::placeholders::_2),
+      std::bind(&DecoderVanjee750::decoderDataUnitCallback, this, std::placeholders::_1, std::placeholders::_2));
+}
+
+template <typename T_PointCloud>
+inline bool DecoderVanjee750<T_PointCloud>::decodeMsopPkt750CBaseProtocol(const uint8_t *pkt, size_t size) {
+  return decoder_packet_base_c_->decoderPacket(
+      pkt, size, std::bind(&DecoderVanjee750::update750CAngleAndTimestampInfoCallback, this, std::placeholders::_1, std::placeholders::_2),
+      std::bind(&DecoderVanjee750::decoderDataUnitCCallback, this, std::placeholders::_1, std::placeholders::_2));
+}
+
+template <typename T_PointCloud>
+inline bool DecoderVanjee750<T_PointCloud>::decodeMsopPkt750EBaseProtocol(const uint8_t *pkt, size_t size) {
+  return decoder_packet_base_->decoderPacket(
+      pkt, size, std::bind(&DecoderVanjee750::update750EAngleAndTimestampInfoCallback, this, std::placeholders::_1, std::placeholders::_2),
       std::bind(&DecoderVanjee750::decoderDataUnitCallback, this, std::placeholders::_1, std::placeholders::_2));
 }
 
@@ -656,6 +982,8 @@ void DecoderVanjee750<T_PointCloud>::processDifopPkt(std::shared_ptr<ProtocolBas
 
   if (*sp_cmd == *(CmdRepository750::CreateInstance()->set_protocol_version_cmd_id_ptr_)) {
     p = std::make_shared<Protocol_ProtocolVersionSet>();
+  } else if (*sp_cmd == *(CmdRepository750::CreateInstance()->sp_get_imu_packet_)) {
+    p = std::make_shared<Protocol_ImuPacketGet750>();
   } else {
     return;
   }
@@ -663,6 +991,43 @@ void DecoderVanjee750<T_PointCloud>::processDifopPkt(std::shared_ptr<ProtocolBas
 
   std::shared_ptr<ParamsAbstract> params = p->Params;
   if (typeid(*params) == typeid(Param_ProtocolVersionSetWlr750)) {
+  } else if (typeid(*params) == typeid(Params_ImuPacketGet750)) {
+    std::shared_ptr<Params_ImuPacketGet750> param = std::dynamic_pointer_cast<Params_ImuPacketGet750>(params);
+    if (this->param_.imu_enable == -1)
+      return;
+    double pkt_ts = 0.0;
+    double imu_timestamp = param->imu_sec_ + (param->imu_nsec_ * 1e-9);
+    if (this->param_.use_lidar_clock)
+      pkt_ts = imu_timestamp;
+    else
+      pkt_ts = getTimeHost() * 1e-6;
+
+    if (pre_imu_timestamp_ > 0 && imu_timestamp > pre_imu_timestamp_) {
+      this->imu_ready_ = this->m_imu_params_get_->imuGet(param->imu_angle_voc_x_, param->imu_angle_voc_y_, param->imu_angle_voc_z_,
+                                                         param->imu_linear_acce_x_, param->imu_linear_acce_y_, param->imu_linear_acce_z_,
+                                                         imu_timestamp, this->param_.imu_orientation_enable, -100.0, false, false, false, true, true);
+      if (this->imu_ready_) {
+        this->imu_packet_->timestamp = pkt_ts;
+        this->imu_packet_->angular_voc[0] = this->m_imu_params_get_->imu_result_stu_.x_angle;
+        this->imu_packet_->angular_voc[1] = this->m_imu_params_get_->imu_result_stu_.y_angle;
+        this->imu_packet_->angular_voc[2] = this->m_imu_params_get_->imu_result_stu_.z_angle;
+
+        this->imu_packet_->linear_acce[0] = this->m_imu_params_get_->imu_result_stu_.x_acc;
+        this->imu_packet_->linear_acce[1] = this->m_imu_params_get_->imu_result_stu_.y_acc;
+        this->imu_packet_->linear_acce[2] = this->m_imu_params_get_->imu_result_stu_.z_acc;
+
+        this->imu_packet_->orientation[0] = this->m_imu_params_get_->imu_result_stu_.q0;
+        this->imu_packet_->orientation[1] = this->m_imu_params_get_->imu_result_stu_.q1;
+        this->imu_packet_->orientation[2] = this->m_imu_params_get_->imu_result_stu_.q2;
+        this->imu_packet_->orientation[3] = this->m_imu_params_get_->imu_result_stu_.q3;
+
+        this->cb_imu_pkt_();
+      }
+    }
+    pre_imu_timestamp_ = imu_timestamp;
+
+  } else {
+    WJ_WARNING << "Unknown Params Type..." << WJ_REND;
   }
 }
 }  // namespace lidar

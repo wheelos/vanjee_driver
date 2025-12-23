@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -51,11 +51,15 @@ enum LidarType {
   vanjee_718h,
   vanjee_719,
   vanjee_719c,
+  vanjee_719e,
   vanjee_720,
   vanjee_720_16,
   vanjee_720_32,
   vanjee_721,
   vanjee_722,
+  vanjee_722f,
+  vanjee_722h,
+  vanjee_722z,
   vanjee_733,
   vanjee_738,
   vanjee_750,
@@ -76,6 +80,9 @@ inline std::string lidarTypeToStr(const LidarType &type) {
     case LidarType::vanjee_719c:
       str = "vanjee_719c";
       break;
+    case LidarType::vanjee_719e:
+      str = "vanjee_719e";
+      break;
     case LidarType::vanjee_720:
     case LidarType::vanjee_720_16:
       str = "vanjee_720_16";
@@ -88,6 +95,15 @@ inline std::string lidarTypeToStr(const LidarType &type) {
       break;
     case LidarType::vanjee_722:
       str = "vanjee_722";
+      break;
+    case LidarType::vanjee_722f:
+      str = "vanjee_722f";
+      break;
+    case LidarType::vanjee_722h:
+      str = "vanjee_722h";
+      break;
+    case LidarType::vanjee_722z:
+      str = "vanjee_722z";
       break;
     case LidarType::vanjee_733:
       str = "vanjee_733";
@@ -118,6 +134,8 @@ inline LidarType strToLidarType(const std::string &type) {
     return LidarType::vanjee_719;
   } else if (type == "vanjee_719c") {
     return LidarType::vanjee_719c;
+  } else if (type == "vanjee_719e") {
+    return LidarType::vanjee_719e;
   } else if (type == "vanjee_720" || type == "vanjee_720_16") {
     return LidarType::vanjee_720_16;
   } else if (type == "vanjee_720_32") {
@@ -126,6 +144,12 @@ inline LidarType strToLidarType(const std::string &type) {
     return LidarType::vanjee_721;
   } else if (type == "vanjee_722") {
     return LidarType::vanjee_722;
+  } else if (type == "vanjee_722f") {
+    return LidarType::vanjee_722f;
+  } else if (type == "vanjee_722h") {
+    return LidarType::vanjee_722h;
+  } else if (type == "vanjee_722z") {
+    return LidarType::vanjee_722z;
   } else if (type == "vanjee_733") {
     return LidarType::vanjee_733;
   } else if (type == "vanjee_738") {
@@ -156,7 +180,9 @@ inline std::string inputTypeToStr(const InputType &type) {
     case InputType::PCAP_FILE:
       str = "PCAP_FILE";
       break;
-
+    case InputType::RAW_PACKET:
+      str = "RAW_PACKET";
+      break;
     default:
       str = "ERROR";
       WJ_ERROR << "WJ_ERROR" << WJ_REND;
@@ -172,6 +198,29 @@ struct WJTransfromParam {
   float roll = 0.0f;
   float pitch = 0.0f;
   float yaw = 0.0f;
+  float x_imu = 0.0f;
+  float y_imu = 0.0f;
+  float z_imu = 0.0f;
+  float roll_imu = 0.0f;
+  float pitch_imu = 0.0f;
+  float yaw_imu = 0.0f;
+
+  WJTransfromParam(double x_ = 0.0, double y_ = 0.0, double z_ = 0.0, double roll_ = 0.0, double pitch_ = 0.0, double yaw_ = 0.0, double x_imu_ = 0.0,
+                   double y_imu_ = 0.0, double z_imu_ = 0.0, double roll_imu_ = 0.0, double pitch_imu_ = 0.0, double yaw_imu_ = 0.0)
+      : x(x_),
+        y(y_),
+        z(z_),
+        roll(roll_),
+        pitch(pitch_),
+        yaw(yaw_),
+        x_imu(x_imu_),
+        y_imu(y_imu_),
+        z_imu(z_imu_),
+        roll_imu(roll_imu_),
+        pitch_imu(pitch_imu_),
+        yaw_imu(yaw_imu_) {
+  }
+
   void print() const {
     WJ_INFO << "------------------------------------------------------" << WJ_REND;
     WJ_INFO << "          VanjeeLidar Transform Parameters            " << WJ_REND;
@@ -201,11 +250,19 @@ struct WJDecoderParam {
   std::string angle_path_hor = "";
   std::string imu_param_path = "";
 
+  bool query_via_external_interface_enable = false;
   bool point_cloud_enable = false;
-  int16_t imu_enable = 1;
+  int16_t imu_enable = -1;
+  bool imu_orientation_enable = true;
   bool laser_scan_enable = false;
   bool device_ctrl_state_enable = false;
   bool device_ctrl_cmd_enable = false;
+  bool send_packet_enable = false;
+  bool recv_packet_enable = false;
+  bool send_lidar_param_enable = false;
+  bool recv_lidar_param_cmd_enable = false;
+
+  bool tail_filter_enable = false;
 
   std::string hide_points_range = "";
   WJTransfromParam transform_param;
@@ -244,10 +301,13 @@ struct WJInputParam {
   bool use_vlan = false;
   uint16_t user_layer_bytes = 0;
   uint16_t tail_layer_bytes = 0;
+  std::string port_name = "";
+  uint32_t baud_rate = 115200;
+  std::string network_interface = "";
   void print() const {
     WJ_INFO << "-----------------------------------------------------------" << WJ_REND;
     WJ_INFO << "             VANJEE Input Parameters                     " << WJ_REND;
-    WJ_INFO << "connect_type: " << (connect_type == 2 ? "tcp" : "udp") << WJ_REND;
+    WJ_INFO << "connect_type: " << (connect_type == 3 ? "serial port" : (connect_type == 2 ? "tcp" : "udp")) << WJ_REND;
     WJ_INFOL << "host_msop_port: " << host_msop_port << WJ_REND;
     WJ_INFOL << "lidar_msop_port: " << lidar_msop_port << WJ_REND;
     WJ_INFOL << "host_address: " << host_address << WJ_REND;
@@ -281,8 +341,8 @@ struct WJMemsParam {
   float Rotate_mirror_pitch = 0.0f;
   std::vector<float> Rotate_mirror_offset{0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
   std::vector<float> View_center_yaws{0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
-  float rwadata_yaw_resolution = 0.0f;
-  float rwadata_pitch_resolution = 0.0f;
+  float raw_data_yaw_resolution = 0.0f;
+  float raw_data_pitch_resolution = 0.0f;
   float start_pitch = 0.0f;
   float end_pitch = 0.0f;
   float start_yaw = 0.0f;
@@ -290,7 +350,7 @@ struct WJMemsParam {
   float beta = 0.0f;
   float gama_z = 0.0f;
   float gama_y = 0.0f;
-  bool reversal_horizontzal = false;
+  bool reversal_horizontal = false;
   bool reversal_vertical = false;
   int scan_echo_type = 1;
 };

@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -40,14 +40,16 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 using namespace vanjee::lidar;
 
-bool VanjeeLidarDriverLib::init(const WJDriverParam &param, const std::function<void(std::shared_ptr<PointCloudMsg>)> &cb_put_cloud,
-                                const std::function<void(std::shared_ptr<ImuPacket>)> &cb_put_imu_pkt,
-                                const std::function<void(std::shared_ptr<ScanData>)> &cb_put_scan_data,
-                                const std::function<void(std::shared_ptr<DeviceCtrl>)> &cb_put_device_ctrl_state) {
+bool VanjeeLidarDriverLib::init(const WJDriverParam &param, const std::function<void(std::shared_ptr<PointCloudClient>)> &cb_put_cloud,
+                                const std::function<void(std::shared_ptr<ImuPacketClient>)> &cb_put_imu_pkt,
+                                const std::function<void(std::shared_ptr<ScanDataClient>)> &cb_put_scan_data,
+                                const std::function<void(std::shared_ptr<DeviceCtrlClient>)> &cb_put_device_ctrl_state,
+                                const std::function<void(std::shared_ptr<LidarParameterInterfaceClient>)> &cb_put_lidar_param) {
   point_cloud_callback_ = cb_put_cloud;
   imu_pack_callback_ = cb_put_imu_pkt;
   laser_scan_callback_ = cb_put_scan_data;
   device_ctrl_callback_ = cb_put_device_ctrl_state;
+  lidar_param_callback_ = cb_put_lidar_param;
 
   WJ_INFO << "------------------------------------------------------" << WJ_REND;
   WJ_INFO << "                      " << name_ << WJ_REND;
@@ -77,6 +79,16 @@ bool VanjeeLidarDriverLib::init(const WJDriverParam &param, const std::function<
   // regDeviceCtrlCallback function.
   driver_.regDeviceCtrlCallback(std::bind(&VanjeeLidarDriverLib::allocateDeviceCtrlMemoryCallback, this),
                                 std::bind(&VanjeeLidarDriverLib::deviceCtrlCallback, this, std::placeholders::_1));
+
+  // @brief packetCallback, have to be implemented,and as the parameter of regPacketCallback function.
+  driver_.regPacketCallback(std::bind(&VanjeeLidarDriverLib::packetCallback, this, std::placeholders::_1));
+
+  // @brief these two callback,allocateLidarParameterInterfaceMemoryCallback and
+  // lidarParameterInterfaceCallback, have to be implemented,and as the parameter of
+  // regLidarParameterInterfaceCallback function.
+  driver_.regLidarParameterInterfaceCallback(std::bind(&VanjeeLidarDriverLib::allocateLidarParameterInterfaceMemoryCallback, this),
+                                             std::bind(&VanjeeLidarDriverLib::lidarParameterInterfaceCallback, this, std::placeholders::_1));
+
   if (!driver_.init(param)) {
     WJ_ERROR << name_ << ": Failed to initialize driver." << WJ_REND;
     return false;
@@ -87,10 +99,30 @@ bool VanjeeLidarDriverLib::init(const WJDriverParam &param, const std::function<
 
 bool VanjeeLidarDriverLib::start() {
   to_exit_driver_ = false;
-  point_cloud_thread_ = std::thread(&VanjeeLidarDriverLib::processPointCloud, this);
-  imu_thread_ = std::thread(&VanjeeLidarDriverLib::processImu, this);
-  laser_scan_thread_ = std::thread(&VanjeeLidarDriverLib::processLaserScan, this);
-  device_ctrl_thread_ = std::thread(&VanjeeLidarDriverLib::processDeviceCtrl, this);
+  if (send_point_cloud_ros_) {
+    point_cloud_thread_ = std::thread(&VanjeeLidarDriverLib::processPointCloud, this);
+  }
+  if (send_imu_packet_ros_) {
+    imu_thread_ = std::thread(&VanjeeLidarDriverLib::processImu, this);
+  }
+  if (send_laser_scan_ros_) {
+    laser_scan_thread_ = std::thread(&VanjeeLidarDriverLib::processLaserScan, this);
+  }
+  if (send_device_ctrl_state_ros_) {
+    device_ctrl_thread_ = std::thread(&VanjeeLidarDriverLib::processDeviceCtrl, this);
+  }
+  if (recv_device_ctrl_cmd_ros_) {
+    device_ctrl_cmd_thread_ = std::thread(&VanjeeLidarDriverLib::processDeviceCtrlCmd, this);
+  }
+  if (send_packet_ros_) {
+    packet_thread_ = std::thread(&VanjeeLidarDriverLib::processPacket, this);
+  }
+  if (send_lidar_param_ros_) {
+    send_lidar_param_thread_ = std::thread(&VanjeeLidarDriverLib::processLidarParameterSend, this);
+  }
+  if (recv_lidar_param_cmd_ros_) {
+    recv_lidar_param_thread_ = std::thread(&VanjeeLidarDriverLib::processLidarParameterRecv, this);
+  }
   driver_.start();
   WJ_DEBUG << name_ << ": Started driver." << WJ_REND;
 
@@ -100,62 +132,190 @@ bool VanjeeLidarDriverLib::start() {
 void VanjeeLidarDriverLib::stop() {
   driver_.stop();
   to_exit_driver_ = true;
-  point_cloud_thread_.join();
-  imu_thread_.join();
-  laser_scan_thread_.join();
-  device_ctrl_thread_.join();
+  if (send_point_cloud_ros_) {
+    point_cloud_thread_.join();
+  }
+  if (send_imu_packet_ros_) {
+    imu_thread_.join();
+  }
+  if (send_laser_scan_ros_) {
+    laser_scan_thread_.join();
+  }
+  if (send_device_ctrl_state_ros_) {
+    device_ctrl_thread_.join();
+  }
+  if (recv_device_ctrl_cmd_ros_) {
+    device_ctrl_cmd_thread_.join();
+  }
+  if (send_packet_ros_) {
+    packet_thread_.join();
+  }
+  if (send_lidar_param_ros_) {
+    send_lidar_param_thread_.join();
+  }
+  if (recv_lidar_param_cmd_ros_) {
+    recv_lidar_param_thread_.join();
+  }
+}
+
+void VanjeeLidarDriverLib::deviceCtrlApi(DeviceCtrl device_ctrl) {
+  driver_.deviceCtrlApi(device_ctrl);
+}
+
+void VanjeeLidarDriverLib::lidarParameterApi(LidarParameterInterface lidar_param) {
+  driver_.lidarParameterApi(lidar_param);
 }
 
 std::shared_ptr<PointCloudMsg> VanjeeLidarDriverLib::allocatePointCloudMemoryCallback() {
-  std::shared_ptr<PointCloudMsg> msg = free_cloud_queue_.pop();
+  std::shared_ptr<PointCloudClient> msg = free_cloud_queue_.pop();
   if (msg.get() != NULL) {
-    return msg;
+    return std::make_shared<PointCloudMsg>(msg->point_cloud_msg_);
   }
 
   return std::make_shared<PointCloudMsg>();
 }
 
 void VanjeeLidarDriverLib::pointCloudCallback(std::shared_ptr<PointCloudMsg> msg) {
-  stuffed_cloud_queue_.push(msg);
+  std::shared_ptr<PointCloudClient> msg_client = std::make_shared<PointCloudClient>();
+  msg_client->lidar_id_ = lidar_id_;
+  msg_client->point_cloud_msg_ = *msg;
+  stuffed_cloud_queue_.push(msg_client);
 }
 
 std::shared_ptr<ImuPacket> VanjeeLidarDriverLib::allocateImuPacketMemoryCallback() {
-  std::shared_ptr<ImuPacket> pkt = free_imu_queue_.pop();
-  if (pkt.get() != NULL) {
-    return pkt;
+  std::shared_ptr<ImuPacketClient> msg = free_imu_queue_.pop();
+  if (msg.get() != NULL) {
+    std::shared_ptr<ImuPacket> msg_ret = std::make_shared<ImuPacket>();
+    msg_ret->timestamp = msg->timestamp;
+    msg_ret->seq = msg->seq;
+    msg_ret->orientation = msg->orientation;
+    msg_ret->orientation_covariance = msg->orientation_covariance;
+    msg_ret->angular_voc = msg->angular_voc;
+    msg_ret->angular_voc_covariance = msg->angular_voc_covariance;
+    msg_ret->linear_acce = msg->linear_acce;
+    msg_ret->linear_acce_covariance = msg->linear_acce_covariance;
+    return msg_ret;
   }
 
   return std::make_shared<ImuPacket>();
 }
 
 void VanjeeLidarDriverLib::imuPacketCallback(std::shared_ptr<ImuPacket> msg) {
-  stuffed_imu_queue_.push(msg);
+  std::shared_ptr<ImuPacketClient> msg_client = std::make_shared<ImuPacketClient>();
+  msg_client->timestamp = msg->timestamp;
+  msg_client->seq = msg->seq;
+  msg_client->orientation = msg->orientation;
+  msg_client->orientation_covariance = msg->orientation_covariance;
+  msg_client->angular_voc = msg->angular_voc;
+  msg_client->angular_voc_covariance = msg->angular_voc_covariance;
+  msg_client->linear_acce = msg->linear_acce;
+  msg_client->linear_acce_covariance = msg->linear_acce_covariance;
+
+  msg_client->lidar_id_ = lidar_id_;
+  stuffed_imu_queue_.push(msg_client);
 }
 
 std::shared_ptr<ScanData> VanjeeLidarDriverLib::allocateLaserScanMemoryCallback() {
-  std::shared_ptr<ScanData> pkt = free_scan_data_queue_.pop();
-  if (pkt.get() != NULL) {
-    return pkt;
+  std::shared_ptr<ScanDataClient> msg = free_scan_data_queue_.pop();
+  if (msg.get() != NULL) {
+    std::shared_ptr<ScanData> msg_ret = std::make_shared<ScanData>();
+    msg_ret->seq = msg->seq;
+    msg_ret->timestamp = msg->timestamp;
+    msg_ret->angle_min = msg->angle_min;
+    msg_ret->angle_max = msg->angle_max;
+    msg_ret->angle_increment = msg->angle_increment;
+    msg_ret->time_increment = msg->time_increment;
+    msg_ret->scan_time = msg->scan_time;
+    msg_ret->range_min = msg->range_min;
+    msg_ret->range_max = msg->range_max;
+    msg_ret->ranges = msg->ranges;
+    msg_ret->intensities = msg->intensities;
+    return msg_ret;
   }
 
   return std::make_shared<ScanData>();
 }
 
 void VanjeeLidarDriverLib::laserScanCallback(std::shared_ptr<ScanData> msg) {
-  stuffed_scan_data_queue_.push(msg);
+  std::shared_ptr<ScanDataClient> msg_client = std::make_shared<ScanDataClient>();
+  msg_client->seq = msg->seq;
+  msg_client->timestamp = msg->timestamp;
+  msg_client->angle_min = msg->angle_min;
+  msg_client->angle_max = msg->angle_max;
+  msg_client->angle_increment = msg->angle_increment;
+  msg_client->time_increment = msg->time_increment;
+  msg_client->scan_time = msg->scan_time;
+  msg_client->range_min = msg->range_min;
+  msg_client->range_max = msg->range_max;
+  msg_client->ranges = msg->ranges;
+  msg_client->intensities = msg->intensities;
+
+  msg_client->lidar_id_ = lidar_id_;
+  stuffed_scan_data_queue_.push(msg_client);
 }
 
 std::shared_ptr<DeviceCtrl> VanjeeLidarDriverLib::allocateDeviceCtrlMemoryCallback() {
-  std::shared_ptr<DeviceCtrl> pkt = free_device_ctrl_queue_.pop();
-  if (pkt.get() != NULL) {
-    return pkt;
+  std::shared_ptr<DeviceCtrlClient> msg = free_device_ctrl_queue_.pop();
+  if (msg.get() != NULL) {
+    std::shared_ptr<DeviceCtrl> msg_ret = std::make_shared<DeviceCtrl>();
+    msg_ret->seq = msg->seq;
+    msg_ret->timestamp = msg->timestamp;
+    msg_ret->cmd_id = msg->cmd_id;
+    msg_ret->cmd_param = msg->cmd_param;
+    msg_ret->cmd_state = msg->cmd_state;
+    return msg_ret;
   }
 
   return std::make_shared<DeviceCtrl>();
 }
 
 void VanjeeLidarDriverLib::deviceCtrlCallback(std::shared_ptr<DeviceCtrl> msg) {
-  stuffed_device_ctrl_queue_.push(msg);
+  std::shared_ptr<DeviceCtrlClient> msg_client = std::make_shared<DeviceCtrlClient>();
+  msg_client->seq = msg->seq;
+  msg_client->timestamp = msg->timestamp;
+  msg_client->cmd_id = msg->cmd_id;
+  msg_client->cmd_param = msg->cmd_param;
+  msg_client->cmd_state = msg->cmd_state;
+
+  msg_client->lidar_id_ = lidar_id_;
+  stuffed_device_ctrl_queue_.push(msg_client);
+}
+
+// @brief this callback which would return the packet to queue
+void VanjeeLidarDriverLib::packetCallback(std::shared_ptr<Packet> msg) {
+  std::shared_ptr<PacketClient> msg_client = std::make_shared<PacketClient>();
+  msg_client->lidar_id_ = lidar_id_;
+  msg_client->packet_ = *msg;
+  stuffed_packet_queue_.push(msg_client);
+}
+
+std::shared_ptr<LidarParameterInterface> VanjeeLidarDriverLib::allocateLidarParameterInterfaceMemoryCallback() {
+  std::shared_ptr<LidarParameterInterfaceClient> msg = free_lidar_param_queue_.pop();
+  if (msg.get() != NULL) {
+    std::shared_ptr<LidarParameterInterface> msg_ret = std::make_shared<LidarParameterInterface>();
+    msg_ret->seq = msg->seq;
+    msg_ret->timestamp = msg->timestamp;
+    msg_ret->cmd_id = msg->cmd_id;
+    msg_ret->cmd_type = msg->cmd_type;
+    msg_ret->repeat_interval = msg->repeat_interval;
+    msg_ret->data = msg->data;
+    return msg_ret;
+  }
+
+  return std::make_shared<LidarParameterInterface>();
+}
+
+void VanjeeLidarDriverLib::lidarParameterInterfaceCallback(std::shared_ptr<LidarParameterInterface> msg) {
+  std::shared_ptr<LidarParameterInterfaceClient> msg_client = std::make_shared<LidarParameterInterfaceClient>();
+  msg_client->seq = msg->seq;
+  msg_client->timestamp = msg->timestamp;
+  msg_client->cmd_id = msg->cmd_id;
+  msg_client->cmd_type = msg->cmd_type;
+  msg_client->repeat_interval = msg->repeat_interval;
+  msg_client->data = msg->data;
+
+  msg_client->lidar_id_ = lidar_id_;
+  stuffed_lidar_param_queue_.push(msg_client);
 }
 
 void VanjeeLidarDriverLib::exceptionCallback(const Error &code) {
@@ -164,7 +324,7 @@ void VanjeeLidarDriverLib::exceptionCallback(const Error &code) {
 
 void VanjeeLidarDriverLib::processPointCloud() {
   while (!to_exit_driver_) {
-    std::shared_ptr<PointCloudMsg> msg = stuffed_cloud_queue_.popWait();
+    std::shared_ptr<PointCloudClient> msg = stuffed_cloud_queue_.popWait();
     if (msg.get() == NULL) {
       continue;
     }
@@ -175,7 +335,7 @@ void VanjeeLidarDriverLib::processPointCloud() {
 
 void VanjeeLidarDriverLib::processImu() {
   while (!to_exit_driver_) {
-    std::shared_ptr<ImuPacket> msg = stuffed_imu_queue_.popWait();
+    std::shared_ptr<ImuPacketClient> msg = stuffed_imu_queue_.popWait();
     if (msg.get() == NULL) {
       continue;
     }
@@ -186,7 +346,7 @@ void VanjeeLidarDriverLib::processImu() {
 
 void VanjeeLidarDriverLib::processLaserScan() {
   while (!to_exit_driver_) {
-    std::shared_ptr<ScanData> msg = stuffed_scan_data_queue_.popWait();
+    std::shared_ptr<ScanDataClient> msg = stuffed_scan_data_queue_.popWait();
     if (msg.get() == NULL) {
       continue;
     }
@@ -197,12 +357,77 @@ void VanjeeLidarDriverLib::processLaserScan() {
 
 void VanjeeLidarDriverLib::processDeviceCtrl() {
   while (!to_exit_driver_) {
-    std::shared_ptr<DeviceCtrl> msg = stuffed_device_ctrl_queue_.popWait();
+    std::shared_ptr<DeviceCtrlClient> msg = stuffed_device_ctrl_queue_.popWait();
     if (msg.get() == NULL) {
       continue;
     }
     device_ctrl_callback_(msg);
     free_device_ctrl_queue_.push(msg);
+  }
+}
+
+void VanjeeLidarDriverLib::processDeviceCtrlCmd() {
+  while (!to_exit_driver_) {
+    std::shared_ptr<DeviceCtrlClient> msg = device_ctrl_param_.popWait();
+    if (msg.get() == NULL) {
+      continue;
+    }
+    if (msg->lidar_id_ == lidar_id_) {
+      std::shared_ptr<DeviceCtrl> msg_ret = std::make_shared<DeviceCtrl>();
+      msg_ret->seq = msg->seq;
+      msg_ret->timestamp = msg->timestamp;
+      msg_ret->cmd_id = msg->cmd_id;
+      msg_ret->cmd_param = msg->cmd_param;
+      msg_ret->cmd_state = msg->cmd_state;
+      deviceCtrlApi(*msg_ret);
+      // std::cout << "lidar [" << (uint16_t)msg->lidar_id_ << "] seq: " << msg->seq << ", cmd_id: " << msg->cmd_id << ", cmd_param: "
+      //           << msg->cmd_param << ", cmd_state: " << (uint16_t)msg->cmd_state << std::endl;
+    } else {
+      device_ctrl_param_.push(msg);
+    }
+  }
+}
+
+void VanjeeLidarDriverLib::processPacket() {
+  while (!to_exit_driver_) {
+    std::shared_ptr<PacketClient> msg = stuffed_packet_queue_.popWait();
+    if (msg.get() == NULL) {
+      continue;
+    }
+  }
+}
+
+void VanjeeLidarDriverLib::processLidarParameterSend() {
+  while (!to_exit_driver_) {
+    std::shared_ptr<LidarParameterInterfaceClient> msg = stuffed_lidar_param_queue_.popWait();
+    if (msg.get() == NULL) {
+      continue;
+    }
+    lidar_param_callback_(msg);
+    free_lidar_param_queue_.push(msg);
+  }
+}
+
+void VanjeeLidarDriverLib::processLidarParameterRecv() {
+  while (!to_exit_driver_) {
+    std::shared_ptr<LidarParameterInterfaceClient> msg = lidar_param_.popWait();
+    if (msg.get() == NULL) {
+      continue;
+    }
+    if (msg->lidar_id_ == lidar_id_) {
+      std::shared_ptr<LidarParameterInterface> msg_ret = std::make_shared<LidarParameterInterface>();
+      msg_ret->seq = msg->seq;
+      msg_ret->timestamp = msg->timestamp;
+      msg_ret->cmd_id = msg->cmd_id;
+      msg_ret->cmd_type = msg->cmd_type;
+      msg_ret->repeat_interval = msg->repeat_interval;
+      msg_ret->data = msg->data;
+      lidarParameterApi(*msg_ret);
+      // std::cout << "lidar [" << (uint16_t)msg->lidar_id_ << "] seq: " << msg->seq << ", cmd_id: " << msg->cmd_id << ", cmd_type: "
+      //           << (uint16_t)msg->cmd_type << ", repeat_interval: " << msg->repeat_interval << ", data: " << msg->data << std::endl;
+    } else {
+      lidar_param_.push(msg);
+    }
   }
 }
 
@@ -219,10 +444,11 @@ bool vanjeeLidarDriverLibStop() {
   }
 }
 
-int vanjeeLidarDriverLibStart(std::string config_path, const std::function<void(std::shared_ptr<PointCloudMsg>)> &cb_put_cloud,
-                              const std::function<void(std::shared_ptr<ImuPacket>)> &cb_put_imu_pkt,
-                              const std::function<void(std::shared_ptr<ScanData>)> &cb_put_scan_data,
-                              const std::function<void(std::shared_ptr<DeviceCtrl>)> &cb_put_device_ctrl_state) {
+int vanjeeLidarDriverLibStart(std::string config_path, const std::function<void(std::shared_ptr<PointCloudClient>)> &cb_put_cloud,
+                              const std::function<void(std::shared_ptr<ImuPacketClient>)> &cb_put_imu_pkt,
+                              const std::function<void(std::shared_ptr<ScanDataClient>)> &cb_put_scan_data,
+                              const std::function<void(std::shared_ptr<DeviceCtrlClient>)> &cb_put_device_ctrl_state,
+                              const std::function<void(std::shared_ptr<LidarParameterInterfaceClient>)> &cb_put_lidar_param) {
   YAML::Node config;
   try {
     config = YAML::LoadFile(config_path);
@@ -234,25 +460,40 @@ int vanjeeLidarDriverLibStart(std::string config_path, const std::function<void(
   YAML::Node common_config = yamlSubNodeAbort(config, "common");
   int msg_source = 0;
   yamlRead<int>(common_config, "msg_source", msg_source, 0);
-  bool send_point_cloud_ros;
-  yamlRead<bool>(common_config, "send_point_cloud_ros", send_point_cloud_ros, false);
-  bool send_imu_packet_ros;
-  yamlRead<bool>(common_config, "send_imu_packet_ros", send_imu_packet_ros, false);
-  bool send_laser_scan_ros;
-  yamlRead<bool>(common_config, "send_laser_scan_ros", send_laser_scan_ros, false);
-  bool send_device_ctrl_ros;
-  yamlRead<bool>(common_config, "send_device_ctrl_ros", send_device_ctrl_ros, false);
+  yamlRead<bool>(common_config, "send_point_cloud_ros", send_point_cloud_ros_, false);
+  yamlRead<bool>(common_config, "send_imu_packet_ros", send_imu_packet_ros_, false);
+  yamlRead<bool>(common_config, "send_laser_scan_ros", send_laser_scan_ros_, false);
+  yamlRead<bool>(common_config, "send_device_ctrl_state_ros", send_device_ctrl_state_ros_, false);
+  yamlRead<bool>(common_config, "recv_device_ctrl_cmd_ros", recv_device_ctrl_cmd_ros_, false);
+  yamlRead<bool>(common_config, "send_packet_ros", send_packet_ros_, false);
+  if (msg_source == 3) {
+    recv_packet_ros_ = true;
+    send_packet_ros_ = false;
+  }
+  yamlRead<bool>(common_config, "send_lidar_parameter_ros", send_lidar_param_ros_, false);
+  yamlRead<bool>(common_config, "recv_lidar_parameter_cmd_ros", recv_lidar_param_cmd_ros_, false);
+  if (msg_source != 1) {
+    recv_lidar_param_cmd_ros_ = false;
+  }
 
   YAML::Node lidar_config = yamlSubNodeAbort(config, "lidar");
   std::vector<VanjeeLidarDriverLib> client(lidar_config.size());
   for (uint8_t i = 0; i < lidar_config.size(); i++) {
-    if (!send_imu_packet_ros) {
+    lidar_config[i]["driver"]["point_cloud_enable"] = send_point_cloud_ros_;
+    if (!send_imu_packet_ros_) {
       lidar_config[i]["driver"]["imu_enable"] = -1;
     } else if (msg_source == 1) {
       lidar_config[i]["driver"]["imu_enable"] = 1;
     } else {
       lidar_config[i]["driver"]["imu_enable"] = 0;
     }
+    lidar_config[i]["driver"]["laser_scan_enable"] = send_laser_scan_ros_;
+    lidar_config[i]["driver"]["device_ctrl_state_enable"] = send_device_ctrl_state_ros_;
+    lidar_config[i]["driver"]["device_ctrl_cmd_enable"] = recv_device_ctrl_cmd_ros_;
+    lidar_config[i]["driver"]["send_packet_enable"] = send_packet_ros_;
+    lidar_config[i]["driver"]["recv_packet_enable"] = recv_packet_ros_;
+    lidar_config[i]["driver"]["send_lidar_param_enable"] = send_lidar_param_ros_;
+    lidar_config[i]["driver"]["recv_lidar_param_cmd_enable"] = recv_lidar_param_cmd_ros_;
 
     YAML::Node driver_config = yamlSubNodeAbort(lidar_config[i], "driver");
     vanjee::lidar::WJDriverParam driver_param;
@@ -268,6 +509,9 @@ int vanjeeLidarDriverLibStart(std::string config_path, const std::function<void(
     yamlRead<float>(driver_config, "pcap_rate", driver_param.input_param.pcap_rate, 1);
     yamlRead<uint16_t>(driver_config, "use_layer_bytes", driver_param.input_param.user_layer_bytes, 0);
     yamlRead<uint16_t>(driver_config, "tail_layer_bytes", driver_param.input_param.tail_layer_bytes, 0);
+    yamlRead<std::string>(driver_config, "port_name", driver_param.input_param.port_name, "");
+    yamlRead<uint32_t>(driver_config, "baud_rate", driver_param.input_param.baud_rate, 115200);
+    yamlRead<std::string>(driver_config, "network_interface", driver_param.input_param.network_interface, "");
     std::string lidar_type;
     yamlReadAbort<std::string>(driver_config, "lidar_type", lidar_type);
     driver_param.lidar_type = strToLidarType(lidar_type);
@@ -283,10 +527,21 @@ int vanjeeLidarDriverLibStart(std::string config_path, const std::function<void(
     yamlRead<uint16_t>(driver_config, "rpm", driver_param.decoder_param.rpm, 1200);
     yamlRead<std::string>(driver_config, "angle_path_ver", driver_param.decoder_param.angle_path_ver, "");
     yamlRead<std::string>(driver_config, "angle_path_hor", driver_param.decoder_param.angle_path_hor, "");
-    yamlRead<std::string>(driver_config, "imu_param_path", driver_param.decoder_param.imu_param_path, "");
+    yamlRead<bool>(driver_config, "query_via_external_interface_enable", driver_param.decoder_param.query_via_external_interface_enable, false);
+    yamlRead<bool>(driver_config, "point_cloud_enable", driver_param.decoder_param.point_cloud_enable, false);
+    yamlRead<int16_t>(driver_config, "imu_enable", driver_param.decoder_param.imu_enable, 1);
+    yamlRead<bool>(driver_config, "imu_orientation_enable", driver_param.decoder_param.imu_orientation_enable, true);
+    yamlRead<bool>(driver_config, "laser_scan_enable", driver_param.decoder_param.laser_scan_enable, false);
+    yamlRead<bool>(driver_config, "device_ctrl_state_enable", driver_param.decoder_param.device_ctrl_state_enable, false);
+    yamlRead<bool>(driver_config, "device_ctrl_cmd_enable", driver_param.decoder_param.device_ctrl_cmd_enable, false);
+    yamlRead<bool>(driver_config, "send_packet_enable", driver_param.decoder_param.send_packet_enable, false);
+    yamlRead<bool>(driver_config, "recv_packet_enable", driver_param.decoder_param.recv_packet_enable, false);
+    yamlRead<bool>(driver_config, "send_lidar_param_enable", driver_param.decoder_param.send_lidar_param_enable, false);
+    yamlRead<bool>(driver_config, "recv_lidar_param_cmd_enable", driver_param.decoder_param.recv_lidar_param_cmd_enable, false);
     yamlRead<int16_t>(driver_config, "imu_enable", driver_param.decoder_param.imu_enable, 1);
     yamlRead<std::string>(driver_config, "hide_points_range", driver_param.decoder_param.hide_points_range, "");
     yamlRead<uint16_t>(driver_config, "publish_mode", driver_param.decoder_param.publish_mode, 0);
+    yamlRead<bool>(driver_config, "tail_filter_enable", driver_param.decoder_param.tail_filter_enable, false);
 
     yamlRead<float>(driver_config, "x", driver_param.decoder_param.transform_param.x, 0);
     yamlRead<float>(driver_config, "y", driver_param.decoder_param.transform_param.y, 0);
@@ -294,6 +549,14 @@ int vanjeeLidarDriverLibStart(std::string config_path, const std::function<void(
     yamlRead<float>(driver_config, "roll", driver_param.decoder_param.transform_param.roll, 0);
     yamlRead<float>(driver_config, "pitch", driver_param.decoder_param.transform_param.pitch, 0);
     yamlRead<float>(driver_config, "yaw", driver_param.decoder_param.transform_param.yaw, 0);
+
+    yamlRead<float>(driver_config, "x_imu", driver_param.decoder_param.transform_param.x_imu, 0);
+    yamlRead<float>(driver_config, "y_imu", driver_param.decoder_param.transform_param.y_imu, 0);
+    yamlRead<float>(driver_config, "z_imu", driver_param.decoder_param.transform_param.z_imu, 0);
+    yamlRead<float>(driver_config, "roll_imu", driver_param.decoder_param.transform_param.roll_imu, 0);
+    yamlRead<float>(driver_config, "pitch_imu", driver_param.decoder_param.transform_param.pitch_imu, 0);
+    yamlRead<float>(driver_config, "yaw_imu", driver_param.decoder_param.transform_param.yaw_imu, 0);
+
     switch (msg_source) {
       case 1:
         driver_param.input_type = InputType::ONLINE_LIDAR;
@@ -301,11 +564,15 @@ int vanjeeLidarDriverLibStart(std::string config_path, const std::function<void(
       case 2:
         driver_param.input_type = InputType::PCAP_FILE;
         break;
+      case 3:
+        driver_param.input_type = InputType::RAW_PACKET;
+        break;
       default:
         break;
     }
     client[i].name_ = "lidar_" + std::to_string(i + 1);
-    if (!client[i].init(driver_param, cb_put_cloud, cb_put_imu_pkt, cb_put_scan_data, cb_put_device_ctrl_state)) {
+    client[i].lidar_id_ = i + 1;
+    if (!client[i].init(driver_param, cb_put_cloud, cb_put_imu_pkt, cb_put_scan_data, cb_put_device_ctrl_state, cb_put_lidar_param)) {
       WJ_ERROR << "Driver Initialize Error...." << WJ_REND;
       return -1;
     }
@@ -334,4 +601,14 @@ int vanjeeLidarDriverLibStart(std::string config_path, const std::function<void(
 #endif
 
   return 0;
+}
+
+void vanjeeLidarDriverDeviceCtrlApi(DeviceCtrlClient &device_ctrl) {
+  std::shared_ptr<DeviceCtrlClient> device_ctrl_ptr = std::make_shared<DeviceCtrlClient>(device_ctrl);
+  device_ctrl_param_.push(device_ctrl_ptr);
+}
+
+void vanjeeLidarDriverLidarParameterApi(LidarParameterInterfaceClient &lidar_param) {
+  std::shared_ptr<LidarParameterInterfaceClient> lidar_param_ptr = std::make_shared<LidarParameterInterfaceClient>(lidar_param);
+  lidar_param_.push(lidar_param_ptr);
 }

@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -38,12 +38,16 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 #ifdef _WIN32
+#include <iphlpapi.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
 #include <vanjee_driver/driver/input/input.hpp>
 
 #pragma warning(disable : 4244)
+
+#pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "iphlpapi.lib")
 
 namespace vanjee {
 namespace lidar {
@@ -61,7 +65,8 @@ class InputUdpSocket : public Input {
 
  private:
   inline void recvPacket();
-  inline int createUdpSocket(uint16_t port, const std::string& hostIp, const std::string& grpIp);
+  inline int createUdpSocket(const std::string& interface_name, uint16_t port, const std::string& hostIp, const std::string& grpIp);
+  inline DWORD getInterfaceIndex(const char* interface_name);
 
  protected:
   size_t pkt_buf_len_;
@@ -85,7 +90,7 @@ inline bool InputUdpSocket::init() {
   int ret = -1;
   while (ret < 0 && attempt < create_socket_retry_num) {
     ret = WSAStartup(version, &wsaData);
-    if (msop_fd > 0)
+    if (ret > 0)
       break;
     Sleep(5000);
     attempt++;
@@ -98,7 +103,7 @@ inline bool InputUdpSocket::init() {
 
   attempt = 0;
   while (msop_fd < 0 && attempt < create_socket_retry_num) {
-    msop_fd = createUdpSocket(input_param_.host_msop_port, input_param_.host_address, input_param_.group_address);
+    msop_fd = createUdpSocket(input_param_.network_interface, input_param_.host_msop_port, input_param_.host_address, input_param_.group_address);
     if (msop_fd > 0)
       break;
     Sleep(5000);
@@ -143,9 +148,44 @@ inline InputUdpSocket::~InputUdpSocket() {
   }
 }
 
-inline int InputUdpSocket::createUdpSocket(uint16_t port, const std::string& hostIp, const std::string& grpIp) {
-  int fd;
-  int ret;
+inline DWORD InputUdpSocket::getInterfaceIndex(const char* interface_name) {
+  setlocale(LC_ALL, "chs");
+
+  PIP_ADAPTER_ADDRESSES adapter_addrs = NULL;
+  ULONG buf_len = 0;
+  DWORD if_index = 0;
+
+  size_t size = mbstowcs(nullptr, interface_name, 0) + 1;
+  wchar_t* wchar_t_interface_name = new wchar_t[size];
+  mbstowcs(wchar_t_interface_name, interface_name, size);
+
+  if (GetAdaptersAddresses(AF_UNSPEC, 0, NULL, NULL, &buf_len) == ERROR_BUFFER_OVERFLOW) {
+    adapter_addrs = (PIP_ADAPTER_ADDRESSES)malloc(buf_len);
+    if (!adapter_addrs) {
+      delete[] wchar_t_interface_name;
+      free(adapter_addrs);
+      return 0;
+    }
+  }
+
+  if (GetAdaptersAddresses(AF_UNSPEC, 0, NULL, adapter_addrs, &buf_len) == NO_ERROR) {
+    PIP_ADAPTER_ADDRESSES curr = adapter_addrs;
+    while (curr) {
+      if (wcscmp(curr->FriendlyName, wchar_t_interface_name) == 0 || wcscmp(curr->Description, wchar_t_interface_name) == 0) {
+        if_index = curr->IfIndex;
+        break;
+      }
+      curr = curr->Next;
+    }
+  }
+  delete[] wchar_t_interface_name;
+  free(adapter_addrs);
+  return if_index;
+}
+
+inline int InputUdpSocket::createUdpSocket(const std::string& interface_name, uint16_t port, const std::string& hostIp, const std::string& grpIp) {
+  int fd = -1;
+  int ret = -1;
   int reuse = 1;
   if (hostIp == "0.0.0.0" && grpIp == "0.0.0.0") {
     perror("ip err: ");
@@ -158,6 +198,15 @@ inline int InputUdpSocket::createUdpSocket(uint16_t port, const std::string& hos
     goto failSocket;
   }
 
+  if (interface_name != "") {
+    DWORD if_index = htonl(getInterfaceIndex(&interface_name[0]));
+    ret = setsockopt(fd, IPPROTO_IP, IP_UNICAST_IF, (const char*)&if_index, sizeof(if_index));
+    if (ret < 0) {
+      perror("setsockopt(IP_UNICAST_IF) failed");
+      goto failOption;
+    }
+  }
+
   ret = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse));
   if (ret < 0) {
     perror("setsockopt(SO_REUSEADDR): ");
@@ -165,10 +214,13 @@ inline int InputUdpSocket::createUdpSocket(uint16_t port, const std::string& hos
   }
 
   {
-    Sleep(1000);
     int set_rcv_size = 1024 * 1024;  // 1M
     int set_optlen = sizeof(set_rcv_size);
     ret = setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (const char*)&set_rcv_size, set_optlen);
+    if (ret < 0) {
+      perror("recv buf set: ");
+      goto failSocket;
+    }
   }
 
   struct sockaddr_in host_addr;
@@ -268,7 +320,11 @@ int32 InputUdpSocket::send_(uint8* buf, uint32 size) {
 
 inline void InputUdpSocket::recvPacket() {
   int max_fd = fds_;
-
+  struct in_addr target_addr;
+  if (inet_pton(AF_INET, input_param_.lidar_address.c_str(), &target_addr) != 1) {
+    std::cerr << "Invalid lidar IP!" << std::endl;
+    return;
+  }
   while (!to_exit_recv_) {
     fd_set rfds;
     FD_ZERO(&rfds);
@@ -292,13 +348,17 @@ inline void InputUdpSocket::recvPacket() {
 
     if ((fds_ >= 0) && FD_ISSET(fds_, &rfds)) {
       std::shared_ptr<Buffer> pkt = cb_get_pkt_(pkt_buf_len_);
-      int ret = recvfrom(fds_, (char*)pkt->buf(), (int)pkt->bufSize(), 0, NULL, NULL);
+      struct sockaddr_in addr;
+      socklen_t addrLen = sizeof(struct sockaddr_in);
+      int ret = recvfrom(fds_, (char*)pkt->buf(), (int)pkt->bufSize(), 0, (struct sockaddr*)&addr, &addrLen);
 
       if (ret < 0) {
         perror("recvfrom: ");
       } else if (ret > 0) {
-        pkt->setData(sock_offset_, ret - sock_offset_ - sock_tail_);
-        pushPacket(pkt);
+        if (addr.sin_addr.s_addr == target_addr.s_addr) {
+          pkt->setData(sock_offset_, ret - sock_offset_ - sock_tail_);
+          pushPacket(pkt);
+        }
       }
     }
   }
@@ -336,7 +396,7 @@ class InputUdpSocket : public Input {
   virtual ~InputUdpSocket();
 
  private:
-  inline int createUdpSocket(uint16_t port, const std::string &honstIp, const std::string &grpIp);
+  inline int createUdpSocket(const std::string &interface_name, uint16_t port, const std::string &honstIp, const std::string &grpIp);
   inline void recvPacket();
   inline std::string getIpAddr(const struct sockaddr_in &addr);
 };
@@ -370,7 +430,7 @@ inline bool InputUdpSocket::init() {
 
   attempt = 0;
   while (msop_fd < 0 && attempt < create_socket_retry_num) {
-    msop_fd = createUdpSocket(input_param_.host_msop_port, input_param_.host_address, input_param_.group_address);
+    msop_fd = createUdpSocket(input_param_.network_interface, input_param_.host_msop_port, input_param_.host_address, input_param_.group_address);
     if (msop_fd > 0)
       break;
     sleep(5);
@@ -421,9 +481,9 @@ inline InputUdpSocket ::~InputUdpSocket() {
   }
 }
 
-inline int InputUdpSocket::createUdpSocket(uint16_t port, const std::string &honstIp, const std::string &grpIp) {
-  int fd;
-  int ret;
+inline int InputUdpSocket::createUdpSocket(const std::string &interface_name, uint16_t port, const std::string &honstIp, const std::string &grpIp) {
+  int fd = -1;
+  int ret = -1;
   int reuse = 1;
   if (honstIp == "0.0.0.0" && grpIp == "0.0.0.0") {
     perror("ip err: ");
@@ -436,6 +496,14 @@ inline int InputUdpSocket::createUdpSocket(uint16_t port, const std::string &hon
     goto failSocket;
   }
 
+  if (interface_name != "") {
+    ret = setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, &interface_name[0], strlen(&interface_name[0]));
+    if (ret < 0) {
+      perror("setsockopt(SO_BINDTODEVICE) failed");
+      goto failOption;
+    }
+  }
+
   ret = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
   if (ret < 0) {
     perror("secsockopt: ");
@@ -443,10 +511,13 @@ inline int InputUdpSocket::createUdpSocket(uint16_t port, const std::string &hon
   }
 
   {
-    sleep(1);
     int set_rcv_size = 1024 * 1024;  // 1M
     int set_optlen = sizeof(set_rcv_size);
     ret = setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (const int *)&set_rcv_size, set_optlen);
+    if (ret < 0) {
+      perror("recv buf set: ");
+      goto failSocket;
+    }
   }
 
   struct sockaddr_in host_addr;
@@ -478,7 +549,7 @@ inline int InputUdpSocket::createUdpSocket(uint16_t port, const std::string &hon
 #endif
     ret = setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &ipm, sizeof(ipm));
     if (ret < 0) {
-      perror("setsockopt(IP_ADD_MENBERSHIP): ");
+      perror("setsockopt(IP_ADD_MEMBERSHIP): ");
       goto failGroup;
     }
   }
@@ -529,8 +600,10 @@ inline void InputUdpSocket::recvPacket() {
       if (ret < 0) {
         perror("recvfrom: ");
       } else if (ret > 0) {
-        pkt->setData(socket_offset_, ret - socket_offset_ - socket_tail_, getIpAddr(addr));
-        pushPacket(pkt);
+        if (addr.sin_addr.s_addr == inet_addr(input_param_.lidar_address.c_str())) {
+          pkt->setData(socket_offset_, ret - socket_offset_ - socket_tail_, getIpAddr(addr));
+          pushPacket(pkt);
+        }
       }
     }
   }
@@ -597,7 +670,7 @@ class InputUdpSocket : public Input {
   InputUdpSocket(const WJInputParam &input_param);
   virtual bool init();
   virtual bool start();
-  inline int createUdpSocket(uint16_t port, const std::string &hostIp, const std::string &grpIp);
+  inline int createUdpSocket(const std::string &interface_name, uint16_t port, const std::string &hostIp, const std::string &grpIp);
   virtual int32 send_(uint8 *buf, uint32 size);
   inline void recvPacket();
   virtual ~InputUdpSocket();
@@ -617,7 +690,7 @@ inline bool InputUdpSocket::init() {
   const int create_socket_retry_num = 60;
   int attempt = 0;
   while (msop_fd < 0 && attempt < create_socket_retry_num) {
-    msop_fd = createUdpSocket(input_param_.host_msop_port, input_param_.host_address, input_param_.group_address);
+    msop_fd = createUdpSocket(input_param_.network_interface, input_param_.host_msop_port, input_param_.host_address, input_param_.group_address);
     if (msop_fd > 0)
       break;
     sleep(5);
@@ -660,9 +733,9 @@ InputUdpSocket::~InputUdpSocket() {
   }
 }
 
-inline int InputUdpSocket::createUdpSocket(uint16_t port, const std::string &hostIp, const std::string &grpIp) {
-  int fd;
-  int ret;
+inline int InputUdpSocket::createUdpSocket(const std::string &interface_name, uint16_t port, const std::string &hostIp, const std::string &grpIp) {
+  int fd = -1;
+  int ret = -1;
   int reuse = 1;
   if (hostIp == "0.0.0.0" && grpIp == "0.0.0.0") {
     perror("ip err: ");
@@ -675,6 +748,14 @@ inline int InputUdpSocket::createUdpSocket(uint16_t port, const std::string &hos
     goto failSocket;
   }
 
+  if (interface_name != "") {
+    ret = setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, &interface_name[0], strlen(&interface_name[0]));
+    if (ret < 0) {
+      perror("setsockopt(SO_BINDTODEVICE) failed");
+      goto failOption;
+    }
+  }
+
   ret = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
   if (ret < 0) {
     perror("setsockopt(SO_REUSEADDR): ");
@@ -682,10 +763,13 @@ inline int InputUdpSocket::createUdpSocket(uint16_t port, const std::string &hos
   }
 
   {
-    sleep(1);
     int set_rcv_size = 1024 * 1024;  // 1M
     int set_optlen = sizeof(set_rcv_size);
     ret = setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (const int *)&set_rcv_size, set_optlen);
+    if (ret < 0) {
+      perror("recv buf set: ");
+      goto failSocket;
+    }
 
     // sleep(1);
     // int recv;
@@ -722,7 +806,7 @@ inline int InputUdpSocket::createUdpSocket(uint16_t port, const std::string &hos
 #endif
     ret = setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &ipm, sizeof(ipm));
     if (ret < 0) {
-      perror("setsockopt(IP_ADD_MENBERSHIP): ");
+      perror("setsockopt(IP_ADD_MEMBERSHIP): ");
       goto failGroup;
     }
   }
@@ -825,8 +909,10 @@ inline void InputUdpSocket::recvPacket() {
       if (ret < 0) {
         perror("recvfrom: \r\n");
       } else if (ret > 0) {
-        pkt->setData(socket_offset_, ret - socket_offset_ - socket_tail_, getIpAddr(addr));
-        pushPacket(pkt);
+        if (addr.sin_addr.s_addr == inet_addr(input_param_.lidar_address.c_str())) {
+          pkt->setData(socket_offset_, ret - socket_offset_ - socket_tail_, getIpAddr(addr));
+          pushPacket(pkt);
+        }
       }
     }
   }

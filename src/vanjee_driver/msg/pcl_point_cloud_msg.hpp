@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -51,21 +51,81 @@ struct PointXYZI : public ::pcl::PointXYZI {
   float hor_angle;
   float ver_angle;
   float distance;
+  uint8_t flag;
 #endif
+  PointXYZI() {
+#ifdef ENABLE_GTEST
+    point_id = 0;
+    hor_angle = 0;
+    ver_angle = 0;
+    distance = 0;
+    flag = 0;
+#endif
+  }
 };
 
 struct PointXYZIRT {
   PCL_ADD_POINT4D;
   float intensity;
-  uint16_t ring = 0;
-  double timestamp = 0;
+  uint16_t ring;
+  double timestamp;
 #ifdef ENABLE_GTEST
   uint32_t point_id;
   float hor_angle;
   float ver_angle;
   float distance;
+  uint8_t flag;
 #endif
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  PointXYZIRT() {
+    x = 0;
+    y = 0;
+    z = 0;
+    data[3] = 1;
+    intensity = 0;
+    ring = 0;
+    timestamp = 0;
+#ifdef ENABLE_GTEST
+    point_id = 0;
+    hor_angle = 0;
+    ver_angle = 0;
+    distance = 0;
+    flag = 0;
+#endif
+  }
+} EIGEN_ALIGN16;
+
+struct PointXYZIRTT {
+  PCL_ADD_POINT4D;
+  float intensity;
+  uint16_t ring;
+  double timestamp;
+  uint8_t tag;
+#ifdef ENABLE_GTEST
+  uint32_t point_id;
+  float hor_angle;
+  float ver_angle;
+  float distance;
+  uint8_t flag;
+#endif
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  PointXYZIRTT() {
+    x = 0;
+    y = 0;
+    z = 0;
+    data[3] = 1;
+    intensity = 0;
+    ring = 0;
+    timestamp = 0;
+    tag = 0;
+#ifdef ENABLE_GTEST
+    point_id = 0;
+    hor_angle = 0;
+    ver_angle = 0;
+    distance = 0;
+    flag = 0;
+#endif
+  }
 } EIGEN_ALIGN16;
 
 template <typename T_Point>
@@ -80,10 +140,59 @@ class PointCloudT : public ::pcl::PointCloud<T_Point> {
 
 }  // namespace vanjee
 
-POINT_CLOUD_REGISTER_POINT_STRUCT(
-    vanjee::lidar::PointXYZIRT,
-    (float, x, x)(float, y, y)(float, z, z)(float, intensity, intensity)(std::uint16_t, ring, ring)(double, timestamp, timestamp)
 #ifdef ENABLE_GTEST
-        (std::uint32_t, point_id, point_id)(float, hor_angle, hor_angle)(float, ver_angle, ver_angle)(float, distance, distance)
-#endif
+POINT_CLOUD_REGISTER_POINT_STRUCT(
+  vanjee::lidar::PointXYZIRT,
+  (float, x, x)
+  (float, y, y)
+  (float, z, z)
+  (float, intensity, intensity)
+  (std::uint16_t, ring, ring)
+  (double, timestamp, timestamp)
+  (std::uint32_t, point_id, point_id)
+  (float, hor_angle, hor_angle)
+  (float, ver_angle, ver_angle)
+  (float, distance, distance)
+  (std::uint8_t, flag, flag)
 )
+
+POINT_CLOUD_REGISTER_POINT_STRUCT(
+  vanjee::lidar::PointXYZIRTT,
+  (float, x, x)
+  (float, y, y)
+  (float, z, z)
+  (float, intensity, intensity)
+  (std::uint16_t, ring, ring)
+  (double, timestamp, timestamp)
+  (std::uint8_t, tag, tag)
+  (std::uint32_t, point_id, point_id)
+  (float, hor_angle, hor_angle)
+  (float, ver_angle, ver_angle)
+  (float, distance, distance)
+  (std::uint8_t,flag, flag)
+)
+
+#else
+
+POINT_CLOUD_REGISTER_POINT_STRUCT(
+  vanjee::lidar::PointXYZIRT,
+  (float, x, x)
+  (float, y, y)
+  (float, z, z)
+  (float, intensity, intensity)
+  (std::uint16_t, ring, ring)
+  (double, timestamp, timestamp)
+)
+
+POINT_CLOUD_REGISTER_POINT_STRUCT(
+  vanjee::lidar::PointXYZIRTT,
+  (float, x, x)
+  (float, y, y)
+  (float, z, z)
+  (float, intensity, intensity)
+  (std::uint16_t, ring, ring)
+  (double, timestamp, timestamp)
+  (std::uint8_t, tag, tag)
+)
+
+#endif

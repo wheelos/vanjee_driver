@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -40,6 +40,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vanjee_driver/common/error_code.hpp>
 #include <vanjee_driver/driver/decoder/basic_attr.hpp>
 #include <vanjee_driver/driver/decoder/chan_angles.hpp>
+#include <vanjee_driver/driver/decoder/decoder_packet_base/imu/imuParamGet.hpp>
 #include <vanjee_driver/driver/decoder/imu_calibration_param.hpp>
 #include <vanjee_driver/driver/decoder/member_checker.hpp>
 #include <vanjee_driver/driver/decoder/section.hpp>
@@ -50,10 +51,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vanjee_driver/driver/driver_param.hpp>
 #include <vanjee_driver/msg/imu_packet.hpp>
 #include <vanjee_driver/msg/scan_data_msg.hpp>
-
-#ifndef _USE_MATH_DEFINES
-#define _USE_MATH_DEFINES
-#endif
 
 #ifdef ENABLE_TRANSFORM
 #include <Eigen/Dense>
@@ -110,6 +107,39 @@ typedef struct _HideRangeParams {
   std::vector<HideDistanceParams> hide_point_distance;
 } HideRangeParams;
 
+typedef struct _FaultParams {
+  uint16_t fault_code;
+  double ts;
+} FaultParams;
+
+typedef struct _CenterCompensationParams {
+  float x;
+  float y;
+  float z;
+} CenterCompensationParams;
+
+struct PointCloudDetectParams {
+  bool enable;
+  bool point_cloud_process_flag;
+  bool point_cloud_data_flag;
+  double point_cloud_pkt_host_ts;
+  uint16_t valid_point_num_standard;
+  uint16_t valid_point_num;
+  uint16_t invalid_points_per_circle_cnt;
+
+  PointCloudDetectParams()
+      : enable(false),
+        point_cloud_process_flag(false),
+        point_cloud_data_flag(true),
+        point_cloud_pkt_host_ts(0.0),
+        valid_point_num_standard(0),
+        valid_point_num(0),
+        invalid_points_per_circle_cnt(0) {
+  }
+};
+
+enum LidarParam { work_mode = 1, temperature, firmware_version, sn, acceleration, fault_code = 0x0100 };
+
 #define INIT_ONLY_ONCE()         \
   static bool init_flag = false; \
   if (init_flag)                 \
@@ -127,7 +157,14 @@ class Decoder {
   virtual void processDifopPkt(std::shared_ptr<ProtocolBase> protocol) {
     WJ_INFO << "Default processDifop." << WJ_REND;
   };
-  virtual ~Decoder() = default;
+  virtual ~Decoder() {  //= default;
+    if ((param_.point_cloud_enable || param_.laser_scan_enable) && (param_.device_ctrl_state_enable || param_.send_lidar_param_enable)) {
+      point_cloud_detect_params_.point_cloud_process_flag = false;
+      if (point_cloud_pkt_detect_thread_.joinable()) {
+        point_cloud_pkt_detect_thread_.join();
+      }
+    }
+  }
   bool processMsopPkt(const uint8_t *pkt, size_t size);
 
   explicit Decoder(const WJDecoderConstParam &const_param, const WJDecoderParam &param);
@@ -137,12 +174,12 @@ class Decoder {
   void transformPoint(float &x, float &y, float &z);
 
   std::vector<std::string> split(const std::string &s, char delimiter);
-  void hidePiontsParamsLoad();
+  void hidePointsParamsLoad();
   bool isValueInRange(uint16_t channel, float angle, float distance, const std::vector<HideRangeParams> &ranges);
 
   void regCallback(const std::function<void(const Error &)> &cb_excep, const std::function<void(uint16_t, double)> &cb_split_frame,
                    const std::function<void(void)> &cb_imu_pkt = nullptr, const std::function<void(double)> &cb_scan_data = nullptr,
-                   const std::function<void(double)> &cb_device_ctrl_state = nullptr);
+                   const std::function<void(double)> &cb_device_ctrl_state = nullptr, const std::function<void(double)> &cb_lidar_param = nullptr);
 
   void regGetDifoCtrlDataInterface(std::shared_ptr<std::map<uint16, GetDifoCtrlClass>> get_difo_ctrl_map_ptr);
 
@@ -150,11 +187,23 @@ class Decoder {
   std::shared_ptr<ImuPacket> imu_packet_;
   std::shared_ptr<ScanData> scan_data_;
   std::shared_ptr<DeviceCtrl> device_ctrl_;
+  std::shared_ptr<LidarParameterInterface> lidar_param_;
 
  public:
   double cloudTs();
   uint8_t checkBCC(const uint8_t *pkt, size_t start_index, size_t end_index);
   uint16_t checkCRC16(const uint8_t *pkt, size_t start_index, size_t end_index);
+  uint32_t checkCRC32(const uint8_t *pkt, size_t start_index, size_t end_index);
+  int32_t rpmOffsetAngle(uint32_t rpm, double time);
+  uint32_t crc32Mpeg2Padded(const uint8_t *p_data, int data_length);
+  void deviceStatePublish(uint16_t fault_id, uint16_t fault_code, uint16_t device_state, double pkt_ts);
+  void addItem2GetDifoCtrlDataMapPtr(const LidarParameterInterface &lidar_param);
+  void lidarParameterPublish(const LidarParameterInterface &lidar_param, double ts);
+  void getLidarParameterDataFormat(LidarParameterInterface &lidar_param, std::map<uint16, std::string> get_lidar_param);
+  uint32_t coordTransAzimuth(double x, double y, uint8_t axis = 0);
+  void calcOpticalCenterCompensation(CenterCompensationParams &param, int32_t hor_angle, float hor_dis, float ver_dis);
+  void pointCloudPktDetectProcess();
+  void pointCloudDetectParamsUpdate();
 
   WJDecoderConstParam const_param_;
   WJDecoderParam param_;
@@ -164,7 +213,11 @@ class Decoder {
   std::function<void(double)> cb_scan_data_;
   std::function<void(const Error &)> cb_excep_;
   std::function<void(double)> cb_device_ctrl_state_;
+  std::function<void(double)> cb_lidar_param_;
   std::shared_ptr<std::map<uint16, GetDifoCtrlClass>> get_difo_ctrl_map_ptr_;
+  std::map<uint16, LidarParameterInterface> get_lidar_param_msg_;
+  std::mutex mtx_lidar_param_;
+  std::thread point_cloud_pkt_detect_thread_;
 
 #ifdef ENABLE_TRANSFORM
   Eigen::Matrix4d trans_;
@@ -174,6 +227,7 @@ class Decoder {
 #define SIN(angle) this->trigon_.sin(angle)
 #define COS(angle) this->trigon_.cos(angle)
 
+  std::shared_ptr<ImuParamGet> m_imu_params_get_;
   double packet_duration_;
   DistanceSection distance_section_;
   Projection projection;
@@ -184,9 +238,19 @@ class Decoder {
   double first_point_ts_;
   double last_point_ts_;
   uint16_t first_line_id_;
+  bool imu_ready_;
+  bool point_cloud_ready_;
 
+  uint32_t start_angle_;
+  uint32_t end_angle_;
   bool hide_range_flag_;
   std::vector<HideRangeParams> hide_range_params_;
+  std::vector<FaultParams> pre_fault_params_;
+
+  std::vector<uint8_t> protocol_ver_angle_table;
+  std::vector<uint8_t> protocol_hor_angle_table;
+
+  PointCloudDetectParams point_cloud_detect_params_;
 };
 
 template <typename T_PointCloud>
@@ -198,12 +262,14 @@ template <typename T_PointCloud>
 inline void Decoder<T_PointCloud>::regCallback(const std::function<void(const Error &)> &cb_excep,
                                                const std::function<void(uint16_t, double)> &cb_split_frame,
                                                const std::function<void(void)> &cb_imu_pkt, const std::function<void(double)> &cb_scan_data,
-                                               const std::function<void(double)> &cb_device_ctrl_state) {
+                                               const std::function<void(double)> &cb_device_ctrl_state,
+                                               const std::function<void(double)> &cb_lidar_param) {
   cb_excep_ = cb_excep;
   cb_split_frame_ = cb_split_frame;
   cb_imu_pkt_ = cb_imu_pkt;
   cb_scan_data_ = cb_scan_data;
   cb_device_ctrl_state_ = cb_device_ctrl_state;
+  cb_lidar_param_ = cb_lidar_param;
 }
 
 template <typename T_PointCloud>
@@ -218,8 +284,14 @@ inline Decoder<T_PointCloud>::Decoder(const WJDecoderConstParam &const_param, co
       first_point_ts_(0.0),
       last_point_ts_(0.0),
       first_line_id_(1),
+      imu_ready_(false),
+      point_cloud_ready_(false),
+      start_angle_(0),
+      end_angle_(360000),
       hide_range_flag_(false) {
-  hidePiontsParamsLoad();
+  pre_fault_params_ = std::vector<FaultParams>{{0, 0.0}, {0, 0.0}, {0, 0.0}, {0, 0.0}, {0, 0.0}, {0, 0.0}, {0, 0.0}, {0, 0.0},
+                                               {0, 0.0}, {0, 0.0}, {0, 0.0}, {0, 0.0}, {0, 0.0}, {0, 0.0}, {0, 0.0}, {0, 0.0}};
+  hidePointsParamsLoad();
 #ifdef ENABLE_TRANSFORM
   Eigen::AngleAxisd current_rotation_x(DEGREE_TO_RADIAN(param_.transform_param.roll), Eigen::Vector3d::UnitX());
   Eigen::AngleAxisd current_rotation_y(DEGREE_TO_RADIAN(param_.transform_param.pitch), Eigen::Vector3d::UnitY());
@@ -227,6 +299,47 @@ inline Decoder<T_PointCloud>::Decoder(const WJDecoderConstParam &const_param, co
   Eigen::Translation3d current_translation(param_.transform_param.x, param_.transform_param.y, param_.transform_param.z);
   trans_ = (current_translation * current_rotation_z * current_rotation_y * current_rotation_x).matrix();
 #endif
+  if ((param_.point_cloud_enable || param_.laser_scan_enable) && (param_.device_ctrl_state_enable || param_.send_lidar_param_enable)) {
+    point_cloud_detect_params_.point_cloud_process_flag = true;
+    point_cloud_pkt_detect_thread_ = std::thread(std::bind(&Decoder<T_PointCloud>::pointCloudPktDetectProcess, this));
+  }
+}
+
+template <typename T_PointCloud>
+inline void Decoder<T_PointCloud>::pointCloudDetectParamsUpdate() {
+  if (point_cloud_detect_params_.valid_point_num <= point_cloud_detect_params_.valid_point_num_standard) {
+    point_cloud_detect_params_.invalid_points_per_circle_cnt++;
+    if (point_cloud_detect_params_.invalid_points_per_circle_cnt >= 10) {
+      point_cloud_detect_params_.point_cloud_data_flag = false;
+      point_cloud_detect_params_.invalid_points_per_circle_cnt = 0;
+    }
+  } else {
+    point_cloud_detect_params_.valid_point_num = 0;
+    point_cloud_detect_params_.invalid_points_per_circle_cnt = 0;
+  }
+}
+
+template <typename T_PointCloud>
+inline void Decoder<T_PointCloud>::pointCloudPktDetectProcess() {
+  if (point_cloud_detect_params_.point_cloud_pkt_host_ts == 0.0) {
+    point_cloud_detect_params_.point_cloud_pkt_host_ts = getTimeHost() * 1e-6;
+  }
+
+  while (point_cloud_detect_params_.point_cloud_process_flag) {
+    if (!point_cloud_detect_params_.enable) {
+      break;
+    }
+    double host_ts = getTimeHost() * 1e-6;
+    if (host_ts - point_cloud_detect_params_.point_cloud_pkt_host_ts > 1.5) {
+      deviceStatePublish(0, 1, 1, host_ts);
+      point_cloud_detect_params_.point_cloud_pkt_host_ts = host_ts;
+    }
+    if (!point_cloud_detect_params_.point_cloud_data_flag) {
+      deviceStatePublish(0, 2, 2, host_ts);
+      point_cloud_detect_params_.point_cloud_data_flag = true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
 }
 
 template <typename T_PointCloud>
@@ -261,6 +374,142 @@ inline void Decoder<T_PointCloud>::transformPoint(float &x, float &y, float &z) 
 #endif
 }
 
+// Coordinate calculation of azimuth
+template <typename T_PointCloud>
+inline uint32_t Decoder<T_PointCloud>::coordTransAzimuth(double x, double y, uint8_t axis) {
+  double azimuth = 0;
+  double x2 = x * x;
+  double y2 = y * y;
+  double sum_sq = x2 + y2;
+  double inv_norm = 1.0 / sqrt(sum_sq);
+
+  if (axis == 0) {
+    double cos_val = x * inv_norm;
+    cos_val = (cos_val > 1.0) ? 1.0 : (cos_val < -1.0) ? -1.0 : cos_val;
+    azimuth = std::acos(cos_val) * (180 / M_PI);
+    if (y < 0) {
+      azimuth = 360 - azimuth;
+    }
+  } else {
+    double cos_val = y * inv_norm;
+    cos_val = (cos_val > 1.0) ? 1.0 : (cos_val < -1.0) ? -1.0 : cos_val;
+    azimuth = std::acos(cos_val) * (180 / M_PI);
+    if (x < 0) {
+      azimuth = 360 - azimuth;
+    }
+  }
+  return ((uint32_t)lround(azimuth * 1000.0) + 360000U) % 360000U;
+}
+
+// Obtain the optical center compensation value
+template <typename T_PointCloud>
+inline void Decoder<T_PointCloud>::calcOpticalCenterCompensation(CenterCompensationParams &param, int32_t hor_angle, float hor_dis, float ver_dis) {
+  param.x = hor_dis * SIN(hor_angle);
+  param.y = hor_dis * COS(hor_angle);
+  param.z = ver_dis;
+}
+
+template <typename T_PointCloud>
+inline void Decoder<T_PointCloud>::addItem2GetDifoCtrlDataMapPtr(const LidarParameterInterface &lidar_param) {
+  mtx_lidar_param_.lock();
+  if (get_lidar_param_msg_.count(lidar_param.cmd_id) > 0) {
+    get_lidar_param_msg_[lidar_param.cmd_id] = lidar_param;
+  } else {
+    get_lidar_param_msg_.emplace(lidar_param.cmd_id, lidar_param);
+  }
+  mtx_lidar_param_.unlock();
+}
+
+template <typename T_PointCloud>
+void Decoder<T_PointCloud>::getLidarParameterDataFormat(LidarParameterInterface &lidar_param, std::map<uint16, std::string> get_lidar_param) {
+  if (lidar_param.cmd_id == (uint16_t)LidarParam::work_mode) {
+    lidar_param.data = R"({
+  "work_mode": )" + get_lidar_param[lidar_param.cmd_id] +
+                       R"(
+})";
+  } else if (lidar_param.cmd_id == (uint16_t)LidarParam::temperature) {
+    lidar_param.data = R"({
+  "temperature": )" + get_lidar_param[lidar_param.cmd_id] +
+                       R"(
+})";
+  } else if (lidar_param.cmd_id == (uint16_t)LidarParam::firmware_version) {
+    lidar_param.data = R"({
+  "firmware_version": ")" +
+                       get_lidar_param[lidar_param.cmd_id] + R"("
+})";
+  } else if (lidar_param.cmd_id == (uint16_t)LidarParam::sn) {
+    lidar_param.data = R"({
+  "sn": ")" + get_lidar_param[lidar_param.cmd_id] +
+                       R"("
+})";
+  } else if (lidar_param.cmd_id == (uint16_t)LidarParam::fault_code) {
+    lidar_param.data = R"({
+)" + get_lidar_param[lidar_param.cmd_id] +
+                       R"("
+})";
+  } else if (lidar_param.cmd_id == (uint16_t)LidarParam::acceleration) {
+    lidar_param.data = R"({
+  "acceleration_range": )" +
+                       get_lidar_param[lidar_param.cmd_id] +
+                       R"(
+})";
+  }
+}
+
+template <typename T_PointCloud>
+void Decoder<T_PointCloud>::lidarParameterPublish(const LidarParameterInterface &lidar_param, double ts) {
+  if (!param_.send_lidar_param_enable) {
+    return;
+  }
+
+  lidar_param_->cmd_id = lidar_param.cmd_id;
+  lidar_param_->cmd_type = lidar_param.cmd_type;
+  lidar_param_->repeat_interval = lidar_param.repeat_interval;
+  lidar_param_->data = lidar_param.data;
+  cb_lidar_param_(ts);
+}
+
+template <typename T_PointCloud>
+void Decoder<T_PointCloud>::deviceStatePublish(uint16_t fault_id, uint16_t fault_code, uint16_t device_state, double pkt_ts) {
+  bool publish_flag = false;
+  double cur_ts = getTimeHost() * 1e-6;
+  if (pre_fault_params_[fault_id].fault_code != fault_code) {
+    publish_flag = true;
+    pre_fault_params_[fault_id].fault_code = fault_code;
+  } else {
+    if (cur_ts - pre_fault_params_[fault_id].ts > 3) {
+      publish_flag = true;
+    }
+  }
+  if (publish_flag) {
+    pre_fault_params_[fault_id].ts = cur_ts;
+    if (device_state == 1) {
+      WJ_WARNING << "Functional safety -- id: " << fault_id << ", fault code: " << fault_code << WJ_REND;
+    } else {
+      WJ_ERROR << "Functional safety -- id: " << fault_id << ", fault code: " << fault_code << WJ_REND;
+    }
+    if (this->param_.device_ctrl_state_enable) {
+      device_ctrl_->cmd_id = 0x0100 + fault_id;
+      device_ctrl_->cmd_param = fault_code;
+      device_ctrl_->cmd_state = device_state;
+      cb_device_ctrl_state_(pkt_ts);
+    }
+
+    if (this->param_.send_lidar_param_enable) {
+      lidar_param_->cmd_id = 0x0100;
+      lidar_param_->cmd_type = 0;
+      lidar_param_->repeat_interval = 0;
+      lidar_param_->data = R"({
+  "fault_code": )" + std::to_string(fault_code) +
+                           R"(
+  "fault_state": )" + std::to_string(device_state) +
+                           R"(
+})";
+      cb_lidar_param_(pkt_ts);
+    }
+  }
+}
+
 template <typename T_PointCloud>
 std::vector<std::string> Decoder<T_PointCloud>::split(const std::string &s, char delimiter) {
   std::vector<std::string> tokens;
@@ -274,7 +523,7 @@ std::vector<std::string> Decoder<T_PointCloud>::split(const std::string &s, char
 }
 
 template <typename T_PointCloud>
-inline void Decoder<T_PointCloud>::hidePiontsParamsLoad() {
+inline void Decoder<T_PointCloud>::hidePointsParamsLoad() {
   if (param_.hide_points_range != "") {
     std::string hide_points_range_str = param_.hide_points_range;
     hide_points_range_str.erase(std::remove(hide_points_range_str.begin(), hide_points_range_str.end(), ' '), hide_points_range_str.end());
@@ -427,6 +676,86 @@ inline uint16_t Decoder<T_PointCloud>::checkCRC16(const uint8_t *pkt, size_t sta
   return crc16;
 }
 
+template <typename T_PointCloud>
+inline uint32_t Decoder<T_PointCloud>::checkCRC32(const uint8_t *pkt, size_t start_index, size_t end_index) {
+  static const uint32_t crctab[256] = {
+      0x00000000, 0xf26b8303, 0xe13b70f7, 0x1350f3f4, 0xc79a971f, 0x35f1141c, 0x26a1e7e8, 0xd4ca64eb, 0x8ad958cf, 0x78b2dbcc, 0x6be22838, 0x9989ab3b,
+      0x4d43cfd0, 0xbf284cd3, 0xac78bf27, 0x5e133c24, 0x105ec76f, 0xe235446c, 0xf165b798, 0x030e349b, 0xd7c45070, 0x25afd373, 0x36ff2087, 0xc494a384,
+      0x9a879fa0, 0x68ec1ca3, 0x7bbcef57, 0x89d76c54, 0x5d1d08bf, 0xaf768bbc, 0xbc267848, 0x4e4dfb4b, 0x20bd8ede, 0xd2d60ddd, 0xc186fe29, 0x33ed7d2a,
+      0xe72719c1, 0x154c9ac2, 0x061c6936, 0xf477ea35, 0xaa64d611, 0x580f5512, 0x4b5fa6e6, 0xb93425e5, 0x6dfe410e, 0x9f95c20d, 0x8cc531f9, 0x7eaeb2fa,
+      0x30e349b1, 0xc288cab2, 0xd1d83946, 0x23b3ba45, 0xf779deae, 0x05125dad, 0x1642ae59, 0xe4292d5a, 0xba3a117e, 0x4851927d, 0x5b016189, 0xa96ae28a,
+      0x7da08661, 0x8fcb0562, 0x9c9bf696, 0x6ef07595, 0x417b1dbc, 0xb3109ebf, 0xa0406d4b, 0x522bee48, 0x86e18aa3, 0x748a09a0, 0x67dafa54, 0x95b17957,
+      0xcba24573, 0x39c9c670, 0x2a993584, 0xd8f2b687, 0x0c38d26c, 0xfe53516f, 0xed03a29b, 0x1f682198, 0x5125dad3, 0xa34e59d0, 0xb01eaa24, 0x42752927,
+      0x96bf4dcc, 0x64d4cecf, 0x77843d3b, 0x85efbe38, 0xdbfc821c, 0x2997011f, 0x3ac7f2eb, 0xc8ac71e8, 0x1c661503, 0xee0d9600, 0xfd5d65f4, 0x0f36e6f7,
+      0x61c69362, 0x93ad1061, 0x80fde395, 0x72966096, 0xa65c047d, 0x5437877e, 0x4767748a, 0xb50cf789, 0xeb1fcbad, 0x197448ae, 0x0a24bb5a, 0xf84f3859,
+      0x2c855cb2, 0xdeeedfb1, 0xcdbe2c45, 0x3fd5af46, 0x7198540d, 0x83f3d70e, 0x90a324fa, 0x62c8a7f9, 0xb602c312, 0x44694011, 0x5739b3e5, 0xa55230e6,
+      0xfb410cc2, 0x092a8fc1, 0x1a7a7c35, 0xe811ff36, 0x3cdb9bdd, 0xceb018de, 0xdde0eb2a, 0x2f8b6829, 0x82f63b78, 0x709db87b, 0x63cd4b8f, 0x91a6c88c,
+      0x456cac67, 0xb7072f64, 0xa457dc90, 0x563c5f93, 0x082f63b7, 0xfa44e0b4, 0xe9141340, 0x1b7f9043, 0xcfb5f4a8, 0x3dde77ab, 0x2e8e845f, 0xdce5075c,
+      0x92a8fc17, 0x60c37f14, 0x73938ce0, 0x81f80fe3, 0x55326b08, 0xa759e80b, 0xb4091bff, 0x466298fc, 0x1871a4d8, 0xea1a27db, 0xf94ad42f, 0x0b21572c,
+      0xdfeb33c7, 0x2d80b0c4, 0x3ed04330, 0xccbbc033, 0xa24bb5a6, 0x502036a5, 0x4370c551, 0xb11b4652, 0x65d122b9, 0x97baa1ba, 0x84ea524e, 0x7681d14d,
+      0x2892ed69, 0xdaf96e6a, 0xc9a99d9e, 0x3bc21e9d, 0xef087a76, 0x1d63f975, 0x0e330a81, 0xfc588982, 0xb21572c9, 0x407ef1ca, 0x532e023e, 0xa145813d,
+      0x758fe5d6, 0x87e466d5, 0x94b49521, 0x66df1622, 0x38cc2a06, 0xcaa7a905, 0xd9f75af1, 0x2b9cd9f2, 0xff56bd19, 0x0d3d3e1a, 0x1e6dcdee, 0xec064eed,
+      0xc38d26c4, 0x31e6a5c7, 0x22b65633, 0xd0ddd530, 0x0417b1db, 0xf67c32d8, 0xe52cc12c, 0x1747422f, 0x49547e0b, 0xbb3ffd08, 0xa86f0efc, 0x5a048dff,
+      0x8ecee914, 0x7ca56a17, 0x6ff599e3, 0x9d9e1ae0, 0xd3d3e1ab, 0x21b862a8, 0x32e8915c, 0xc083125f, 0x144976b4, 0xe622f5b7, 0xf5720643, 0x07198540,
+      0x590ab964, 0xab613a67, 0xb831c993, 0x4a5a4a90, 0x9e902e7b, 0x6cfbad78, 0x7fab5e8c, 0x8dc0dd8f, 0xe330a81a, 0x115b2b19, 0x020bd8ed, 0xf0605bee,
+      0x24aa3f05, 0xd6c1bc06, 0xc5914ff2, 0x37faccf1, 0x69e9f0d5, 0x9b8273d6, 0x88d28022, 0x7ab90321, 0xae7367ca, 0x5c18e4c9, 0x4f48173d, 0xbd23943e,
+      0xf36e6f75, 0x0105ec76, 0x12551f82, 0xe03e9c81, 0x34f4f86a, 0xc69f7b69, 0xd5cf889d, 0x27a40b9e, 0x79b737ba, 0x8bdcb4b9, 0x988c474d, 0x6ae7c44e,
+      0xbe2da0a5, 0x4c4623a6, 0x5f16d052, 0xad7d5351};
+  uint32_t crc32 = 0x00;
+
+  for (size_t i = start_index; i < end_index; i++) {
+    uint8_t index = (uint8_t)((crc32 ^ pkt[i]) & 0xff);
+    crc32 = (crctab[index] ^ (crc32 >> 8)) & 0xffffffff;  //(uint16)(crctab[(crc16 >> 8) ^ pkt[i]] ^ (crc16 << 8));
+  }
+  return crc32;
+}
+
+template <typename T_PointCloud>
+inline uint32_t Decoder<T_PointCloud>::crc32Mpeg2Padded(const uint8_t *p_data, int data_length) {
+  static const uint32_t crc_table[0x100] = {
+      0x00000000, 0x04C11DB7, 0x09823B6E, 0x0D4326D9, 0x130476DC, 0x17C56B6B, 0x1A864DB2, 0x1E475005, 0x2608EDB8, 0x22C9F00F, 0x2F8AD6D6, 0x2B4BCB61,
+      0x350C9B64, 0x31CD86D3, 0x3C8EA00A, 0x384FBDBD, 0x4C11DB70, 0x48D0C6C7, 0x4593E01E, 0x4152FDA9, 0x5F15ADAC, 0x5BD4B01B, 0x569796C2, 0x52568B75,
+      0x6A1936C8, 0x6ED82B7F, 0x639B0DA6, 0x675A1011, 0x791D4014, 0x7DDC5DA3, 0x709F7B7A, 0x745E66CD, 0x9823B6E0, 0x9CE2AB57, 0x91A18D8E, 0x95609039,
+      0x8B27C03C, 0x8FE6DD8B, 0x82A5FB52, 0x8664E6E5, 0xBE2B5B58, 0xBAEA46EF, 0xB7A96036, 0xB3687D81, 0xAD2F2D84, 0xA9EE3033, 0xA4AD16EA, 0xA06C0B5D,
+      0xD4326D90, 0xD0F37027, 0xDDB056FE, 0xD9714B49, 0xC7361B4C, 0xC3F706FB, 0xCEB42022, 0xCA753D95, 0xF23A8028, 0xF6FB9D9F, 0xFBB8BB46, 0xFF79A6F1,
+      0xE13EF6F4, 0xE5FFEB43, 0xE8BCCD9A, 0xEC7DD02D, 0x34867077, 0x30476DC0, 0x3D044B19, 0x39C556AE, 0x278206AB, 0x23431B1C, 0x2E003DC5, 0x2AC12072,
+      0x128E9DCF, 0x164F8078, 0x1B0CA6A1, 0x1FCDBB16, 0x018AEB13, 0x054BF6A4, 0x0808D07D, 0x0CC9CDCA, 0x7897AB07, 0x7C56B6B0, 0x71159069, 0x75D48DDE,
+      0x6B93DDDB, 0x6F52C06C, 0x6211E6B5, 0x66D0FB02, 0x5E9F46BF, 0x5A5E5B08, 0x571D7DD1, 0x53DC6066, 0x4D9B3063, 0x495A2DD4, 0x44190B0D, 0x40D816BA,
+      0xACA5C697, 0xA864DB20, 0xA527FDF9, 0xA1E6E04E, 0xBFA1B04B, 0xBB60ADFC, 0xB6238B25, 0xB2E29692, 0x8AAD2B2F, 0x8E6C3698, 0x832F1041, 0x87EE0DF6,
+      0x99A95DF3, 0x9D684044, 0x902B669D, 0x94EA7B2A, 0xE0B41DE7, 0xE4750050, 0xE9362689, 0xEDF73B3E, 0xF3B06B3B, 0xF771768C, 0xFA325055, 0xFEF34DE2,
+      0xC6BCF05F, 0xC27DEDE8, 0xCF3ECB31, 0xCBFFD686, 0xD5B88683, 0xD1799B34, 0xDC3ABDED, 0xD8FBA05A, 0x690CE0EE, 0x6DCDFD59, 0x608EDB80, 0x644FC637,
+      0x7A089632, 0x7EC98B85, 0x738AAD5C, 0x774BB0EB, 0x4F040D56, 0x4BC510E1, 0x46863638, 0x42472B8F, 0x5C007B8A, 0x58C1663D, 0x558240E4, 0x51435D53,
+      0x251D3B9E, 0x21DC2629, 0x2C9F00F0, 0x285E1D47, 0x36194D42, 0x32D850F5, 0x3F9B762C, 0x3B5A6B9B, 0x0315D626, 0x07D4CB91, 0x0A97ED48, 0x0E56F0FF,
+      0x1011A0FA, 0x14D0BD4D, 0x19939B94, 0x1D528623, 0xF12F560E, 0xF5EE4BB9, 0xF8AD6D60, 0xFC6C70D7, 0xE22B20D2, 0xE6EA3D65, 0xEBA91BBC, 0xEF68060B,
+      0xD727BBB6, 0xD3E6A601, 0xDEA580D8, 0xDA649D6F, 0xC423CD6A, 0xC0E2D0DD, 0xCDA1F604, 0xC960EBB3, 0xBD3E8D7E, 0xB9FF90C9, 0xB4BCB610, 0xB07DABA7,
+      0xAE3AFBA2, 0xAAFBE615, 0xA7B8C0CC, 0xA379DD7B, 0x9B3660C6, 0x9FF77D71, 0x92B45BA8, 0x9675461F, 0x8832161A, 0x8CF30BAD, 0x81B02D74, 0x857130C3,
+      0x5D8A9099, 0x594B8D2E, 0x5408ABF7, 0x50C9B640, 0x4E8EE645, 0x4A4FFBF2, 0x470CDD2B, 0x43CDC09C, 0x7B827D21, 0x7F436096, 0x7200464F, 0x76C15BF8,
+      0x68860BFD, 0x6C47164A, 0x61043093, 0x65C52D24, 0x119B4BE9, 0x155A565E, 0x18197087, 0x1CD86D30, 0x029F3D35, 0x065E2082, 0x0B1D065B, 0x0FDC1BEC,
+      0x3793A651, 0x3352BBE6, 0x3E119D3F, 0x3AD08088, 0x2497D08D, 0x2056CD3A, 0x2D15EBE3, 0x29D4F654, 0xC5A92679, 0xC1683BCE, 0xCC2B1D17, 0xC8EA00A0,
+      0xD6AD50A5, 0xD26C4D12, 0xDF2F6BCB, 0xDBEE767C, 0xE3A1CBC1, 0xE760D676, 0xEA23F0AF, 0xEEE2ED18, 0xF0A5BD1D, 0xF464A0AA, 0xF9278673, 0xFDE69BC4,
+      0x89B8FD09, 0x8D79E0BE, 0x803AC667, 0x84FBDBD0, 0x9ABC8BD5, 0x9E7D9662, 0x933EB0BB, 0x97FFAD0C, 0xAFB010B1, 0xAB710D06, 0xA6322BDF, 0xA2F33668,
+      0xBCB4666D, 0xB8757BDA, 0xB5365D03, 0xB1F740B4};
+  uint32_t checksum = 0xFFFFFFFF;
+  int i = 0;
+  for (; i < data_length; i++) {
+    uint8_t top = (uint8_t)(checksum >> 24);
+    top ^= p_data[i];
+    checksum = (checksum << 8) ^ crc_table[top];
+  }
+
+  while (i % 4 > 0) {
+    uint8_t top = (uint8_t)(checksum >> 24);
+    checksum = (checksum << 8) ^ crc_table[top];
+    i++;
+  }
+  return checksum;
+}
+
+template <typename T_PointCloud>
+inline int32_t Decoder<T_PointCloud>::rpmOffsetAngle(uint32_t rpm, double time) {
+  return rpm / 60.0 * 360000 * time;
+}
+
 /// @brief MSOP Packet Handler
 /// @brief This is a purely virtual function, provided by the derived classes of
 /// each lidar to provide its own implementation
@@ -445,7 +774,6 @@ inline bool Decoder<T_PointCloud>::processMsopPkt(const uint8_t *pkt, size_t siz
   //     LIMIT_CALL(this->cb_excep_(Error(ERRCODE_WRONGMSOPLEN)), 1);
   //     return false;
   // }
-  // /// @brief Packet的标志字节是否匹配。
   return decodeMsopPkt(pkt, size);
 }
 

@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -57,12 +57,15 @@ SyncQueue<std::shared_ptr<ScanData>> free_scan_data_queue_;
 SyncQueue<std::shared_ptr<ScanData>> stuffed_scan_data_queue_;
 SyncQueue<std::shared_ptr<DeviceCtrl>> free_device_ctrl_queue_;
 SyncQueue<std::shared_ptr<DeviceCtrl>> stuffed_device_ctrl_queue_;
+SyncQueue<std::shared_ptr<Packet>> stuffed_packet_queue_;
+SyncQueue<std::shared_ptr<LidarParameterInterface>> free_lidar_param_queue_;
+SyncQueue<std::shared_ptr<LidarParameterInterface>> stuffed_lidar_param_queue_;
 
 // @brief this function which would return the point cloud to your own
 // application from sdk
 void pointCloudHandler(std::shared_ptr<PointCloudMsg> msg) {
 #if false
-  WJ_MSG << "msg: " << msg->seq << ", timestamp: " << std::to_string(msg->timestamp) << " point cloud size: " << msg->points.size() << WJ_REND;
+  WJ_MSG << "msg: " << msg->seq << ", timestamp: " << std::to_string(msg->timestamp) << ", point cloud size: " << msg->points.size() << WJ_REND;
   // for (auto it = msg->points.begin(); it != msg->points.end(); it++)
   // {
   //   std::cout << std::fixed << std::setprecision(3)
@@ -87,7 +90,7 @@ void imuPacketHandler(std::shared_ptr<ImuPacket> msg) {
 // application from sdk
 void laserScanHandler(std::shared_ptr<ScanData> msg) {
 #if false
-    WJ_MSG << "seq: " << msg->seq << ", timestamp: " << std::to_string(msg->timestamp) << "data_size: " << msg->ranges.size() << WJ_REND;
+    WJ_MSG << "seq: " << msg->seq << ", timestamp: " << std::to_string(msg->timestamp) << ", data_size: " << msg->ranges.size() << WJ_REND;
 #endif
 }
 
@@ -97,6 +100,22 @@ void deviceCtrlStateHandler(std::shared_ptr<DeviceCtrl> msg) {
 #if false
   WJ_MSG << "seq: " << msg->seq << ", timestamp: " << std::to_string(msg->timestamp) << ", cmd_id: " << msg->cmd_id
          << ", cmd_param: " << msg->cmd_param << ", cmd_state: " << (uint16_t)msg->cmd_state << WJ_REND;
+#endif
+}
+
+// @brief this function which would return the packet to your own application from sdk
+void packetHandler(std::shared_ptr<Packet> msg) {
+#if false
+  WJ_MSG << "seq: " << msg->seq << ", timestamp: " << std::to_string(msg->timestamp) << ", buf size: " << (uint16_t)msg->buf.size() << WJ_REND;
+#endif
+}
+
+// @brief this function which would return the lidar parameter to your own application from sdk
+void lidarParameterInterfaceHandler(std::shared_ptr<LidarParameterInterface> msg) {
+#if false
+  WJ_MSG << "seq: " << msg->seq << ", timestamp: " << std::to_string(msg->timestamp)
+          << ", cmd_id: " << msg->cmd_id << ", cmd_type: " << (uint16_t)msg->cmd_type << ", repeat_interval: " << (uint16_t)msg->repeat_interval
+          << ", data: " << msg->data << WJ_REND;
 #endif
 }
 
@@ -170,6 +189,26 @@ void deviceCtrlCallback(std::shared_ptr<DeviceCtrl> msg) {
   stuffed_device_ctrl_queue_.push(msg);
 }
 
+// @brief this callback which would return the packet to queue
+void packetCallback(std::shared_ptr<Packet> msg) {
+  stuffed_packet_queue_.push(msg);
+}
+
+// @brief allocate memory for lidar parameter，sdk would call this callback to get the
+// memory for lidar parameter storage.
+std::shared_ptr<LidarParameterInterface> allocateLidarParameterInterfaceMemoryCallback() {
+  std::shared_ptr<LidarParameterInterface> pkt = free_lidar_param_queue_.pop();
+  if (pkt.get() != NULL) {
+    return pkt;
+  }
+
+  return std::make_shared<LidarParameterInterface>();
+}
+
+// @brief this callback which would return the lidar parameter to queue
+void lidarParameterInterfaceCallback(std::shared_ptr<LidarParameterInterface> msg) {
+  stuffed_lidar_param_queue_.push(msg);
+}
 bool to_exit_process_ = false;
 bool to_exit_keyboard_detect_process_ = false;
 void getKeyboard(void) {
@@ -229,6 +268,27 @@ void processDeviceCtrlState(void) {
   }
 }
 
+void processPacket(void) {
+  while (!to_exit_process_) {
+    std::shared_ptr<Packet> msg = stuffed_packet_queue_.popWait();
+    if (msg.get() == NULL) {
+      continue;
+    }
+    packetHandler(msg);
+  }
+}
+
+void processLidarParameterInterface(void) {
+  while (!to_exit_process_) {
+    std::shared_ptr<LidarParameterInterface> msg = stuffed_lidar_param_queue_.popWait();
+    if (msg.get() == NULL) {
+      continue;
+    }
+    lidarParameterInterfaceHandler(msg);
+    free_lidar_param_queue_.push(msg);
+  }
+}
+
 int main(int argc, char* argv[]) {
   WJDriverParam param;
   param.lidar_type = LidarType::vanjee_720_16;
@@ -237,15 +297,17 @@ int main(int argc, char* argv[]) {
   param.input_param.lidar_msop_port = 3333;
   param.input_param.host_address = "192.168.2.88";
   param.input_param.lidar_address = "192.168.2.86";
-  param.input_param.pcap_path = ".../720.pcap";
+  param.input_param.pcap_path = "<FILE_PATH>/720.pcap";
   param.decoder_param.config_from_file = true;
-  param.decoder_param.angle_path_ver = ".../src/vanjee_lidar_sdk/param/Vanjee_720_16.csv";
-  param.decoder_param.imu_param_path = ".../src/vanjee_lidar_sdk/param/vanjee_720_imu_param.csv";
+  param.decoder_param.angle_path_ver = "<PROJECT_PATH>/src/vanjee_lidar_sdk/param/Vanjee_720_16_VA.csv";
+  param.decoder_param.angle_path_hor = "<PROJECT_PATH>/src/vanjee_lidar_sdk/param/Vanjee_720_HA.csv";
+  param.decoder_param.imu_param_path = "<PROJECT_PATH>/src/vanjee_lidar_sdk/param/vanjee_720_imu_param.csv";
   param.decoder_param.wait_for_difop = false;
-  param.decoder_param.imu_enable = 0;          // -1: disable IMU ; 0: enable IMU but calibrate IMU using default
-                                               // parameters ; 1: enable IMU;
-  param.decoder_param.hide_points_range = "";  // For details about the configuration format, refer to the following
-                                               // documents: "./doc/intro/02_parameter_intro_CN.md"
+  param.decoder_param.point_cloud_enable = true;  // true: enable PointCloud2 msg; false: disable PointCloud2 msg
+  param.decoder_param.imu_enable = 1;             // -1: disable IMU ; 0: enable IMU but calibrate IMU using default
+                                                  // parameters ; 1: enable IMU;
+  param.decoder_param.hide_points_range = "";     // For details about the configuration format, refer to the following
+                                                  // documents: "./doc/intro/02_parameter_intro_CN.md"
   param.print();
 
   LidarDriver<PointCloudMsg> driver;
@@ -268,6 +330,12 @@ int main(int argc, char* argv[]) {
   // deviceCtrlCallback, have to be implemented,and as the parameter of
   // regDeviceCtrlCallback function.
   driver.regDeviceCtrlCallback(allocateDeviceCtrlMemoryCallback, deviceCtrlCallback);
+  // @brief packetCallback, have to be implemented,and as the parameter of regPacketCallback function.
+  driver.regPacketCallback(packetCallback);
+  // @brief these two callback,allocateLidarParameterInterfaceMemoryCallback and
+  // lidarParameterInterfaceCallback, have to be implemented,and as the parameter of
+  // regLidarParameterInterfaceCallback function.
+  driver.regLidarParameterInterfaceCallback(allocateLidarParameterInterfaceMemoryCallback, lidarParameterInterfaceCallback);
   if (!driver.init(param)) {
     WJ_ERROR << "Driver Initialize Error..." << WJ_REND;
     return -1;
@@ -276,6 +344,8 @@ int main(int argc, char* argv[]) {
   std::thread imu_thread_ = std::thread(processImu);
   std::thread laser_scan_thread_ = std::thread(processLaserScan);
   std::thread device_ctrl_thread_ = std::thread(processDeviceCtrlState);
+  std::thread packet_thread_ = std::thread(processPacket);
+  std::thread lidar_param_thread_ = std::thread(processLidarParameterInterface);
 
   driver.start();
 
@@ -295,6 +365,8 @@ int main(int argc, char* argv[]) {
       imu_thread_.join();
       laser_scan_thread_.join();
       device_ctrl_thread_.join();
+      packet_thread_.join();
+      lidar_param_thread_.join();
       detect_handle_thread.join();
       break;
     }

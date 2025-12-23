@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -73,7 +73,7 @@ class Params_ImuPacketGet722 : public ParamsAbstract {
     index += 4;
     memcpy(&imu_nsec_, buf + index, sizeof(int32_t));
     index += 4;
-    for (int i = 0; i < sizeof(remain1_); i++) {
+    for (uint32_t i = 0; i < sizeof(remain1_); i++) {
       remain1_[i] = *(buf + index++);
     }
     memcpy(&imu_linear_acce_x_, buf + index, sizeof(int32_t));
@@ -88,7 +88,7 @@ class Params_ImuPacketGet722 : public ParamsAbstract {
     index += 4;
     memcpy(&imu_angle_voc_z_, buf + index, sizeof(int32_t));
     index += 4;
-    for (int i = 0; i < sizeof(remain2_); i++) {
+    for (uint32_t i = 0; i < sizeof(remain2_); i++) {
       remain2_[i] = *(buf + index++);
     }
   }

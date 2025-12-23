@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -131,7 +131,7 @@ void Imu_Calibration_Param::getFloatFromString(std::string str, float32 &k_, flo
 int Imu_Calibration_Param::loadFromFile(const std::string &imu_param_path) {
   std::ifstream fd(imu_param_path.c_str(), std::ios::in);
   if (!fd.is_open()) {
-    WJ_ERROR << "fail to open imu_param file:" << imu_param_path << WJ_REND;
+    WJ_WARNING << "fail to open imu_param file:" << imu_param_path << WJ_REND;
     return -1;
   }
 

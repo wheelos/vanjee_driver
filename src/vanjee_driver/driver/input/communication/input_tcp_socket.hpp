@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -39,12 +39,16 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 #ifdef _WIN32
 
+#include <iphlpapi.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
 #include <vanjee_driver/driver/input/input.hpp>
 
 #pragma warning(disable : 4244)
+
+#pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "iphlpapi.lib")
 
 namespace vanjee {
 namespace lidar {
@@ -62,7 +66,9 @@ class InputTcpSocket : public Input {
 
  private:
   inline void recvPacket();
-  inline int createTcpSocket(uint16_t lidarPort, const std::string &lidarIp, uint16_t hostPort, const std::string &hostIp);
+  inline int createTcpSocket(const std::string &interface_name, uint16_t lidarPort, const std::string &lidarIp, uint16_t hostPort,
+                             const std::string &hostIp);
+  inline DWORD getInterfaceIndex(const char *interface_name);
   inline bool tcpDisConnect(int m_pSocket);
   void reconnect();
 
@@ -104,7 +110,8 @@ inline bool InputTcpSocket::init() {
 
   attempt = 0;
   while (msop_fd < 0 && attempt < create_socket_retry_num) {
-    msop_fd = createTcpSocket(input_param_.lidar_msop_port, input_param_.lidar_address, input_param_.host_msop_port, input_param_.host_address);
+    msop_fd = createTcpSocket(input_param_.network_interface, input_param_.lidar_msop_port, input_param_.lidar_address, input_param_.host_msop_port,
+                              input_param_.host_address);
     if (msop_fd > 0)
       break;
     Sleep(5000);
@@ -152,9 +159,45 @@ inline InputTcpSocket::~InputTcpSocket() {
   }
 }
 
-inline int InputTcpSocket::createTcpSocket(uint16_t lidarPort, const std::string &lidarIp, uint16_t hostPort, const std::string &hostIp) {
-  int fd;
-  int ret;
+inline DWORD InputTcpSocket::getInterfaceIndex(const char *interface_name) {
+  setlocale(LC_ALL, "chs");
+
+  PIP_ADAPTER_ADDRESSES adapter_addrs = NULL;
+  ULONG buf_len = 0;
+  DWORD if_index = 0;
+
+  size_t size = mbstowcs(nullptr, interface_name, 0) + 1;
+  wchar_t *wchar_t_interface_name = new wchar_t[size];
+  mbstowcs(wchar_t_interface_name, interface_name, size);
+
+  if (GetAdaptersAddresses(AF_UNSPEC, 0, NULL, NULL, &buf_len) == ERROR_BUFFER_OVERFLOW) {
+    adapter_addrs = (PIP_ADAPTER_ADDRESSES)malloc(buf_len);
+    if (!adapter_addrs) {
+      delete[] wchar_t_interface_name;
+      free(adapter_addrs);
+      return 0;
+    }
+  }
+
+  if (GetAdaptersAddresses(AF_UNSPEC, 0, NULL, adapter_addrs, &buf_len) == NO_ERROR) {
+    PIP_ADAPTER_ADDRESSES curr = adapter_addrs;
+    while (curr) {
+      if (wcscmp(curr->FriendlyName, wchar_t_interface_name) == 0 || wcscmp(curr->Description, wchar_t_interface_name) == 0) {
+        if_index = curr->IfIndex;
+        break;
+      }
+      curr = curr->Next;
+    }
+  }
+  delete[] wchar_t_interface_name;
+  free(adapter_addrs);
+  return if_index;
+}
+
+inline int InputTcpSocket::createTcpSocket(const std::string &interface_name, uint16_t lidarPort, const std::string &lidarIp, uint16_t hostPort,
+                                           const std::string &hostIp) {
+  int fd = -1;
+  int ret = -1;
   int reuse = 1;
   if (hostIp == "0.0.0.0" || lidarIp == "0.0.0.0") {
     perror("ip err: ");
@@ -165,6 +208,15 @@ inline int InputTcpSocket::createTcpSocket(uint16_t lidarPort, const std::string
   if (fd < 0) {
     perror("socket: ");
     goto failSocket;
+  }
+
+  if (interface_name != "") {
+    DWORD if_index = htonl(getInterfaceIndex(&interface_name[0]));
+    ret = setsockopt(fd, IPPROTO_IP, IP_UNICAST_IF, (const char *)&if_index, sizeof(if_index));
+    if (ret < 0) {
+      perror("setsockopt(IP_UNICAST_IF) failed");
+      goto failOption;
+    }
   }
 
   ret = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&reuse, sizeof(reuse));
@@ -234,7 +286,8 @@ void InputTcpSocket::reconnect() {
 
     tcpDisConnect(fds_);
     Sleep(2000);
-    fds_ = createTcpSocket(input_param_.lidar_msop_port, input_param_.lidar_address, input_param_.host_msop_port, input_param_.host_address);
+    fds_ = createTcpSocket(input_param_.network_interface, input_param_.lidar_msop_port, input_param_.lidar_address, input_param_.host_msop_port,
+                           input_param_.host_address);
     if (fds_ == -1) {
       WJ_WARNING << "failed to reconnect tcp server, retrying..." << WJ_REND;
     } else {
@@ -343,7 +396,8 @@ class InputTcpSocket : public Input {
 
  private:
   inline void recvPacket();
-  inline int createTcpSocket(uint16_t lidarPort, const std::string &lidarIp, uint16_t hostPort, const std::string &hostIp);
+  inline int createTcpSocket(const std::string &interface_name, uint16_t lidarPort, const std::string &lidarIp, uint16_t hostPort,
+                             const std::string &hostIp);
   inline bool tcpDisConnect(int m_pSocket);
   void reconnect();
 
@@ -384,12 +438,13 @@ inline bool InputTcpSocket::init() {
 
   if (epfd < 0) {
     WJ_ERROR << "failed to create epoll, timeout!" << WJ_REND;
-    goto faileEpfd;
+    goto failedEpfd;
   }
 
   attempt = 0;
   while (msop_fd < 0 && attempt < create_socket_retry_num) {
-    msop_fd = createTcpSocket(input_param_.lidar_msop_port, input_param_.lidar_address, input_param_.host_msop_port, input_param_.host_address);
+    msop_fd = createTcpSocket(input_param_.network_interface, input_param_.lidar_msop_port, input_param_.lidar_address, input_param_.host_msop_port,
+                              input_param_.host_address);
     if (msop_fd > 0)
       break;
     sleep(5);
@@ -412,7 +467,7 @@ inline bool InputTcpSocket::init() {
   return true;
 
 failMsop:
-faileEpfd:
+failedEpfd:
   return false;
 }
 
@@ -440,14 +495,23 @@ InputTcpSocket::~InputTcpSocket() {
   }
 }
 
-inline int InputTcpSocket::createTcpSocket(uint16_t lidarPort, const std::string &lidarIp, uint16_t hostPort, const std::string &hostIp) {
-  int fd;
-  int ret;
+inline int InputTcpSocket::createTcpSocket(const std::string &interface_name, uint16_t lidarPort, const std::string &lidarIp, uint16_t hostPort,
+                                           const std::string &hostIp) {
+  int fd = -1;
+  int ret = -1;
   int reuse = 1;
 
   if (hostIp == "0.0.0.0" || lidarIp == "0.0.0.0") {
     perror("ip err: ");
     goto failSocket;
+  }
+
+  if (interface_name != "") {
+    ret = setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, &interface_name[0], strlen(&interface_name[0]));
+    if (ret < 0) {
+      perror("setsockopt(SO_BINDTODEVICE) failed");
+      goto failOption;
+    }
   }
 
   fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -521,7 +585,8 @@ void InputTcpSocket::reconnect() {
 
     tcpDisConnect(fds_);
     sleep(2);
-    fds_ = createTcpSocket(input_param_.lidar_msop_port, input_param_.lidar_address, input_param_.host_msop_port, input_param_.host_address);
+    fds_ = createTcpSocket(input_param_.network_interface, input_param_.lidar_msop_port, input_param_.lidar_address, input_param_.host_msop_port,
+                           input_param_.host_address);
     if (fds_ == -1)
       WJ_WARNING << "failed to reconnect tcp server, retrying..." << WJ_REND;
     else {
@@ -561,7 +626,7 @@ int32 InputTcpSocket::send_(uint8 *buf, uint32 size) {
   }
 
   if (m_bConnected_ && fds_ > 0) {
-    ret = send(fds_, buf, size, 0);
+    ret = send(fds_, buf, size, MSG_NOSIGNAL);
   }
 
   if (ret == -1) {
@@ -631,7 +696,8 @@ class InputTcpSocket : public Input {
 
  private:
   inline void recvPacket();
-  inline int createTcpSocket(uint16_t lidarPort, const std::string &lidarIp, uint16_t hostPort, const std::string &hostIp);
+  inline int createTcpSocket(const std::string &interface_name, uint16_t lidarPort, const std::string &lidarIp, uint16_t hostPort,
+                             const std::string &hostIp);
   inline bool tcpDisConnect(int m_pSocket);
   void reconnect();
   inline std::string getIpAddr(const struct sockaddr_in &addr);
@@ -659,7 +725,8 @@ inline bool InputTcpSocket::init() {
   const int create_socket_retry_num = 60;
   int attempt = 0;
   while (msop_fd < 0 && attempt < create_socket_retry_num) {
-    msop_fd = createTcpSocket(input_param_.lidar_msop_port, input_param_.lidar_address, input_param_.host_msop_port, input_param_.host_address);
+    msop_fd = createTcpSocket(input_param_.network_interface, input_param_.lidar_msop_port, input_param_.lidar_address, input_param_.host_msop_port,
+                              input_param_.host_address);
     if (msop_fd > 0)
       break;
     sleep(5);
@@ -704,13 +771,22 @@ InputTcpSocket::~InputTcpSocket() {
   }
 }
 
-inline int InputTcpSocket::createTcpSocket(uint16_t lidarPort, const std::string &lidarIp, uint16_t hostPort, const std::string &hostIp) {
-  int fd;
-  int ret;
+inline int InputTcpSocket::createTcpSocket(const std::string &interface_name, uint16_t lidarPort, const std::string &lidarIp, uint16_t hostPort,
+                                           const std::string &hostIp) {
+  int fd = -1;
+  int ret = -1;
   int reuse = 1;
   if (hostIp == "0.0.0.0" || lidarIp == "0.0.0.0") {
     perror("ip err: ");
     goto failSocket;
+  }
+
+  if (interface_name != "") {
+    ret = setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, &interface_name[0], strlen(&interface_name[0]));
+    if (ret < 0) {
+      perror("setsockopt(SO_BINDTODEVICE) failed");
+      goto failOption;
+    }
   }
 
   fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -784,7 +860,8 @@ void InputTcpSocket::reconnect() {
 
     tcpDisConnect(fds_);
     sleep(2);
-    fds_ = createTcpSocket(input_param_.lidar_msop_port, input_param_.lidar_address, input_param_.host_msop_port, input_param_.host_address);
+    fds_ = createTcpSocket(input_param_.network_interface, input_param_.lidar_msop_port, input_param_.lidar_address, input_param_.host_msop_port,
+                           input_param_.host_address);
     if (fds_ == -1) {
       WJ_WARNING << "failed to reconnect tcp server, retrying..." << WJ_REND;
     } else {
@@ -813,7 +890,7 @@ int32 InputTcpSocket::send_(uint8 *buf, uint32 size) {
   }
 
   if (m_bConnected_ && fds_ > 0) {
-    ret = send(fds_, buf, size, 0);
+    ret = send(fds_, buf, size, MSG_NOSIGNAL);
   }
 
   if (ret == -1) {
@@ -860,6 +937,7 @@ inline void InputTcpSocket::recvPacket() {
 
         if (ret < 0) {
           perror("recv: \r\n");
+          m_bConnected_ = false;
           // break;
         } else if (ret > 0) {
           pkt->setData(socket_offset_, ret - socket_offset_ - socket_tail_, getIpAddr(addr));

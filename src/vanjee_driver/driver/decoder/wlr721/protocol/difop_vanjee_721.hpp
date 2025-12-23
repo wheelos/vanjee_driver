@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -55,7 +55,7 @@ void DifopVanjee721::initGetDifoCtrlDataMapPtr() {
   getDifoCtrlData_map_ptr_ = std::make_shared<std::map<uint16, GetDifoCtrlClass>>();
 
   GetDifoCtrlClass getDifoCtrlData_LdAngleGet(*(std::make_shared<Protocol_LDAngleGet721>()->GetRequest()));
-  (*getDifoCtrlData_map_ptr_).emplace(CmdRepository721::CreateInstance()->Sp_LDAngleGet->GetCmdKey(), getDifoCtrlData_LdAngleGet);
+  (*getDifoCtrlData_map_ptr_).emplace(CmdRepository721::CreateInstance()->sp_ld_angle_get_->GetCmdKey(), getDifoCtrlData_LdAngleGet);
 }
 }  // namespace lidar
 }  // namespace vanjee

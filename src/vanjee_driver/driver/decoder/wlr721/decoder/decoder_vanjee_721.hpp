@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -86,11 +86,9 @@ typedef struct _Vanjee721MsopPktDouble {
 template <typename T_PointCloud>
 class DecoderVanjee721 : public DecoderMech<T_PointCloud> {
  private:
-  std::vector<std::vector<double>> all_points_luminous_moment_721_;  // Cache 64 channels, one circle point
-                                                                     // cloud time difference
+  std::vector<std::vector<double>> all_points_luminous_moment_721_;  // Cache 64 channels, one circle point cloud time difference
   const double luminous_period_of_ld_ = 0.000166655;                 // Time interval at adjacent horizontal angles
-  const double luminous_period_of_adjacent_ld_ = 0.000001130;        // Time interval between adjacent vertical angles within the
-                                                                     // group
+  const double luminous_period_of_adjacent_ld_ = 0.000001130;        // Time interval between adjacent vertical angles within the group
 
   int32_t azimuth_trans_pre_ = -1.0;
 
@@ -163,6 +161,10 @@ inline DecoderVanjee721<T_PointCloud>::DecoderVanjee721(const WJDecoderParam& pa
   publish_mode_ = param.publish_mode;
   this->packet_duration_ = FRAME_DURATION / SINGLE_PKT_NUM;
   split_strategy_ = std::make_shared<SplitStrategyByAngle>(0);
+
+  this->start_angle_ = this->param_.start_angle * 1000;
+  this->end_angle_ = this->param_.end_angle * 1000;
+
   if (this->param_.config_from_file) {
     this->chan_angles_.loadFromFile(this->param_.angle_path_ver);
   }
@@ -186,6 +188,9 @@ inline bool DecoderVanjee721<T_PointCloud>::decodeMsopPkt(const uint8_t* pkt, si
 
 template <typename T_PointCloud>
 inline bool DecoderVanjee721<T_PointCloud>::decodeMsopPktSingleEcho(const uint8_t* pkt, size_t size) {
+  if (!this->param_.point_cloud_enable)
+    return false;
+
   const Vanjee721MsopPktSingle& packet = *(Vanjee721MsopPktSingle*)pkt;
   bool ret = false;
   double pkt_ts = 0;
@@ -198,8 +203,10 @@ inline bool DecoderVanjee721<T_PointCloud>::decodeMsopPktSingleEcho(const uint8_
 
   if (!this->param_.use_lidar_clock)
     pkt_ts = getTimeHost() * 1e-6;
-  else
+  else {
     pkt_ts = packet.difop.second + ((double)(packet.difop.microsecond & 0x0fffffff) * 1e-6);
+    pkt_ts = pkt_ts < 0 ? 0 : pkt_ts;
+  }
 
   int32_t resolution = 200;
   uint8_t resolution_index = 0;
@@ -241,10 +248,11 @@ inline bool DecoderVanjee721<T_PointCloud>::decodeMsopPktSingleEcho(const uint8_
     }
 
     double timestamp_point;
+    uint32_t cur_blk_first_point_id = azimuth / resolution * 64;
     for (uint16_t chan = 0; chan < 64; chan++) {
       float x, y, z, xy;
 
-      uint32_t point_id = azimuth / resolution * 64 + chan;
+      uint32_t point_id = cur_blk_first_point_id + chan;
       if (this->param_.ts_first_point == true) {
         timestamp_point = all_points_luminous_moment_721_[resolution_index][point_id];
       } else {
@@ -256,18 +264,16 @@ inline bool DecoderVanjee721<T_PointCloud>::decodeMsopPktSingleEcho(const uint8_
       float tem_distance = channel.distance[0] << 8 | channel.distance[1];
       float distance = tem_distance * this->const_param_.DISTANCE_RES;
       int32_t angle_vert = this->chan_angles_.vertAdjust(chan);
-      int32_t angle_horiz_final = this->chan_angles_.horizAdjust(chan, azimuth) % 360000;
-      if (angle_horiz_final < 0) {
-        angle_horiz_final += 360000;
-      }
+      uint32_t offset_angle = this->rpmOffsetAngle(ntohs(packet.difop.rpm), chan * luminous_period_of_adjacent_ld_);
+      int32_t angle_horiz = (this->chan_angles_.horizAdjust(chan, azimuth) + offset_angle + 360000) % 360000;
 
-      int32_t angle_horiz_mask = (360000 - angle_horiz_final) % 360000;
-      if (this->param_.start_angle < this->param_.end_angle) {
-        if (angle_horiz_mask < this->param_.start_angle * 1000 || angle_horiz_mask > this->param_.end_angle * 1000) {
+      int32_t angle_horiz_mask = 360000 - angle_horiz;
+      if (this->start_angle_ < this->end_angle_) {
+        if (angle_horiz_mask < this->start_angle_ || angle_horiz_mask > this->end_angle_) {
           distance = 0;
         }
       } else {
-        if (angle_horiz_mask > this->param_.end_angle * 1000 && angle_horiz_mask < this->param_.start_angle * 1000) {
+        if (angle_horiz_mask > this->end_angle_ && angle_horiz_mask < this->start_angle_) {
           distance = 0;
         }
       }
@@ -277,14 +283,11 @@ inline bool DecoderVanjee721<T_PointCloud>::decodeMsopPktSingleEcho(const uint8_
         distance = 0;
       }
 
-      int32_t azimuth_index = angle_horiz_final;
-      int32_t verticalVal_721 = angle_vert;
-
       if (this->distance_section_.in(distance)) {
-        xy = distance * COS(verticalVal_721);
-        x = xy * COS(azimuth_index);
-        y = -xy * SIN(azimuth_index);
-        z = distance * SIN(verticalVal_721);
+        xy = distance * COS(angle_vert);
+        x = xy * COS(angle_horiz);
+        y = -xy * SIN(angle_horiz);
+        z = distance * SIN(angle_vert);
         this->transformPoint(x, y, z);
 
         typename T_PointCloud::PointT point;
@@ -294,10 +297,11 @@ inline bool DecoderVanjee721<T_PointCloud>::decodeMsopPktSingleEcho(const uint8_
         setIntensity(point, channel.reflectivity);
         setTimestamp(point, timestamp_point);
         setRing(point, chan + this->first_line_id_);
+        setTag(point, 0);
 #ifdef ENABLE_GTEST
         setPointId(point, point_id);
-        setHorAngle(point, azimuth_index / 1000.0);
-        setVerAngle(point, verticalVal_721 / 1000.0);
+        setHorAngle(point, angle_horiz / 1000.0);
+        setVerAngle(point, angle_vert / 1000.0);
         setDistance(point, distance);
 #endif
         this->point_cloud_->points.emplace_back(point);
@@ -316,10 +320,11 @@ inline bool DecoderVanjee721<T_PointCloud>::decodeMsopPktSingleEcho(const uint8_
         setIntensity(point, 0);
         setTimestamp(point, timestamp_point);
         setRing(point, chan + this->first_line_id_);
+        setTag(point, 0);
 #ifdef ENABLE_GTEST
         setPointId(point, point_id);
-        setHorAngle(point, azimuth_index / 1000.0);
-        setVerAngle(point, verticalVal_721 / 1000.0);
+        setHorAngle(point, angle_horiz / 1000.0);
+        setVerAngle(point, angle_vert / 1000.0);
         setDistance(point, distance);
 #endif
         this->point_cloud_->points.emplace_back(point);
@@ -339,6 +344,9 @@ inline bool DecoderVanjee721<T_PointCloud>::decodeMsopPktSingleEcho(const uint8_
 
 template <typename T_PointCloud>
 inline bool DecoderVanjee721<T_PointCloud>::decodeMsopPktDoubleEcho(const uint8_t* pkt, size_t size) {
+  if (!this->param_.point_cloud_enable)
+    return false;
+
   const Vanjee721MsopPktDouble& packet = *(Vanjee721MsopPktDouble*)pkt;
   bool ret = false;
   double pkt_ts = 0;
@@ -351,8 +359,10 @@ inline bool DecoderVanjee721<T_PointCloud>::decodeMsopPktDoubleEcho(const uint8_
 
   if (!this->param_.use_lidar_clock)
     pkt_ts = getTimeHost() * 1e-6;
-  else
+  else {
     pkt_ts = packet.difop.second + ((double)(packet.difop.microsecond & 0x0fffffff) * 1e-6);
+    pkt_ts = pkt_ts < 0 ? 0 : pkt_ts;
+  }
 
   int32_t resolution = 20;
   uint8_t resolution_index = 0;
@@ -384,6 +394,7 @@ inline bool DecoderVanjee721<T_PointCloud>::decodeMsopPktDoubleEcho(const uint8_
 
     const Vanjee721Block& block = packet.blocks[blk];
     int32_t azimuth = block.rotation[0] << 8 | block.rotation[1];
+    int32_t azimuth_10 = azimuth * 10;
     int32_t azimuth_trans = (azimuth + resolution) % 360000;
 
     if (this->split_strategy_->newBlock(azimuth_trans) && azimuth_trans != 0) {
@@ -400,10 +411,11 @@ inline bool DecoderVanjee721<T_PointCloud>::decodeMsopPktDoubleEcho(const uint8_
     }
     {
       double timestamp_point;
+      uint32_t cur_blk_first_point_id = azimuth / resolution * 64;
       for (uint16_t chan = 0; chan < 64; chan++) {
         float x, y, z, xy;
 
-        uint32_t point_id = azimuth / resolution * 64 + chan;
+        uint32_t point_id = cur_blk_first_point_id + chan;
         if (this->param_.ts_first_point == true) {
           timestamp_point = all_points_luminous_moment_721_[resolution_index][point_id];
         } else {
@@ -415,33 +427,29 @@ inline bool DecoderVanjee721<T_PointCloud>::decodeMsopPktDoubleEcho(const uint8_
         float tem_distance = channel.distance[0] << 8 | channel.distance[1];
         float distance = tem_distance * this->const_param_.DISTANCE_RES;
         int32_t angle_vert = this->chan_angles_.vertAdjust(chan);
-        int32_t angle_horiz_final = this->chan_angles_.horizAdjust(chan, azimuth * 10) % 360000;
-        if (angle_horiz_final < 0) {
-          angle_horiz_final += 360000;
-        }
-        if (this->param_.start_angle < this->param_.end_angle) {
-          if (angle_horiz_final < this->param_.start_angle * 1000 || angle_horiz_final > this->param_.end_angle * 1000) {
+        uint32_t offset_angle = this->rpmOffsetAngle(ntohs(packet.difop.rpm), chan * luminous_period_of_adjacent_ld_);
+        int32_t angle_horiz = (this->chan_angles_.horizAdjust(chan, azimuth_10) + offset_angle + 360000) % 360000;
+
+        if (this->start_angle_ < this->end_angle_) {
+          if (angle_horiz < this->start_angle_ || angle_horiz > this->end_angle_) {
             distance = 0;
           }
         } else {
-          if (angle_horiz_final > this->param_.end_angle * 1000 && angle_horiz_final < this->param_.start_angle * 1000) {
+          if (angle_horiz > this->end_angle_ && angle_horiz < this->start_angle_) {
             distance = 0;
           }
         }
 
         if (this->hide_range_params_.size() > 0 && distance != 0 &&
-            this->isValueInRange(chan + this->first_line_id_, angle_horiz_final / 1000.0, distance, this->hide_range_params_)) {
+            this->isValueInRange(chan + this->first_line_id_, angle_horiz / 1000.0, distance, this->hide_range_params_)) {
           distance = 0;
         }
 
-        int32_t azimuth_index = angle_horiz_final;
-        int32_t verticalVal_721 = angle_vert;
-
         if (this->distance_section_.in(distance)) {
-          xy = distance * COS(verticalVal_721);
-          x = xy * SIN(azimuth_index);
-          y = xy * (COS(azimuth_index));
-          z = distance * SIN(verticalVal_721);
+          xy = distance * COS(angle_vert);
+          x = xy * SIN(angle_horiz);
+          y = xy * (COS(angle_horiz));
+          z = distance * SIN(angle_vert);
           this->transformPoint(x, y, z);
 
           typename T_PointCloud::PointT point;
@@ -451,10 +459,11 @@ inline bool DecoderVanjee721<T_PointCloud>::decodeMsopPktDoubleEcho(const uint8_
           setIntensity(point, channel.reflectivity);
           setTimestamp(point, timestamp_point);
           setRing(point, chan + this->first_line_id_);
+          setTag(point, 0);
 #ifdef ENABLE_GTEST
           setPointId(point, point_id);
-          setHorAngle(point, azimuth_index / 1000.0);
-          setVerAngle(point, verticalVal_721 / 1000.0);
+          setHorAngle(point, angle_horiz / 1000.0);
+          setVerAngle(point, angle_vert / 1000.0);
           setDistance(point, distance);
 #endif
           this->point_cloud_->points.emplace_back(point);
@@ -473,10 +482,11 @@ inline bool DecoderVanjee721<T_PointCloud>::decodeMsopPktDoubleEcho(const uint8_
           setIntensity(point, 0);
           setTimestamp(point, timestamp_point);
           setRing(point, chan + this->first_line_id_);
+          setTag(point, 0);
 #ifdef ENABLE_GTEST
           setPointId(point, point_id);
-          setHorAngle(point, azimuth_index / 1000.0);
-          setVerAngle(point, verticalVal_721 / 1000.0);
+          setHorAngle(point, angle_horiz / 1000.0);
+          setVerAngle(point, angle_vert / 1000.0);
           setDistance(point, distance);
 #endif
           this->point_cloud_->points.emplace_back(point);
@@ -501,9 +511,10 @@ void DecoderVanjee721<T_PointCloud>::processDifopPkt(std::shared_ptr<ProtocolBas
   std::shared_ptr<ProtocolAbstract> p;
   std::shared_ptr<CmdClass> sp_cmd = std::make_shared<CmdClass>(protocol->MainCmd, protocol->SubCmd);
 
-  if (*sp_cmd == *(CmdRepository721::CreateInstance()->Sp_LDAngleGet)) {
+  if (*sp_cmd == *(CmdRepository721::CreateInstance()->sp_ld_angle_get_)) {
     p = std::make_shared<Protocol_LDAngleGet721>();
   } else {
+    return;
   }
 
   p->Load(*protocol);
@@ -531,7 +542,11 @@ void DecoderVanjee721<T_PointCloud>::processDifopPkt(std::shared_ptr<ProtocolBas
 
     if (Decoder<T_PointCloud>::get_difo_ctrl_map_ptr_ != nullptr) {
       WJ_INFOL << "Get LiDAR<LD> angle data..." << WJ_REND;
-      (*(Decoder<T_PointCloud>::get_difo_ctrl_map_ptr_))[sp_cmd->GetCmdKey()].setStopFlag(true);
+      if (this->param_.send_packet_enable) {
+        (*(Decoder<T_PointCloud>::get_difo_ctrl_map_ptr_))[sp_cmd->GetCmdKey()].setSendInterval(5000);
+      } else {
+        (*(Decoder<T_PointCloud>::get_difo_ctrl_map_ptr_))[sp_cmd->GetCmdKey()].setStopFlag(true);
+      }
       Decoder<T_PointCloud>::angles_ready_ = true;
     }
   } else {

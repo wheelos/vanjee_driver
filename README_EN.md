@@ -13,10 +13,14 @@ The supported LiDAR models are as follows.
 - vanjee_718h
 - vanjee_719
 - vanjee_719c
+- vanjee_719e
 - vanjee_720 / vanjee_720_16
 - vanjee_720_32
 - vanjee_721
 - vanjee_722
+- vanjee_722f
+- vanjee_722h
+- vanjee_722z
 - vanjee_733
 - vanjee_750
 - vanjee_760
@@ -24,7 +28,7 @@ The supported LiDAR models are as follows.
 ## 3 Supported Operating Systems
 
 The supported operating systems and compilers are as follows. Note that the compiler must support the C++14 standard.
-- Ubuntu (16.04, 18.04, 20.04)
+- Ubuntu (16.04, 18.04, 20.04, 22.04, 24.04)
   - gcc (4.8+)
 
 - Windows
@@ -123,6 +127,12 @@ On Windows, **vanjee_driver** does not support installation at this time.
 
 Please complete the demo compilation using one of the following methods.
 
+**If there is an error message indicating that "libVanJeeLaser760Filter_linux.so" cannot be found during compilation or execution, the following steps should be taken**
+```sh
+sudo cp <PROJECT_PATH>/src/vanjee_lidar_sdk/src/vanjee_driver/libVanJeeLaser760Filter_linux.so /usr/local/lib
+sudo ldconfig
+```
+
 ```bash
 cd vanjee_driver
 mkdir build && cd build
@@ -149,6 +159,12 @@ For more information about `demo_pcap`, refer to[Decoding PCAP Files](doc/howto/
 **Before proceeding with the following steps to compile the demo, please ensure that you have correctly completed the SDK compilation and installation as described in step 5.**
 
 Please complete the tool compilation using one of the following methods.
+
+**If there is an error message indicating that "libVanJeeLaser760Filter_linux.so" cannot be found during compilation or execution, the following steps should be taken**
+```sh
+sudo cp <PROJECT_PATH>/src/vanjee_lidar_sdk/src/vanjee_driver/libVanJeeLaser760Filter_linux.so /usr/local/lib
+sudo ldconfig
+```
 
 ```bash
 cd vanjee_driver
@@ -177,6 +193,12 @@ For usage instructions on `vanjee_driver_viewer`, please refer to the [Visualiza
 ## 9.1 Compile and Install
 
 Please complete the dynamic library compilation in one of the following ways.
+
+**If there is an error message indicating that "libVanJeeLaser760Filter_linux.so" cannot be found during compilation or execution, the following steps should be taken**
+```sh
+sudo cp <PROJECT_PATH>/src/vanjee_lidar_sdk/src/vanjee_driver/libVanJeeLaser760Filter_linux.so /usr/local/lib
+sudo ldconfig
+```
 
 ```bash
 cd vanjee_driver
@@ -234,4 +256,3 @@ The main interface files for **vanjee_driver** are as follows.
 - Interface Definition: ```vanjee_driver/src/vanjee_driver/api/lidar_driver.hpp```
 - Parameter Definition: ```vanjee_driver/src/vanjee_driver/driver/driver_param.hpp```
 - Error Code Definition: ```vanjee_driver/src/vanjee_driver/common/error_code.hpp```
-

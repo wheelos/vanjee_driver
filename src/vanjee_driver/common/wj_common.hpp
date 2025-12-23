@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -55,11 +55,16 @@ inline int16_t WJ_SWAP_INT16(int16_t value) {
   return value;
 }
 
-#ifndef _USE_MATH_DEFINES
-#define _USE_MATH_DEFINES
-#endif
+#include <cmath>
 
+#ifndef M_PI
+#ifdef _WIN32
+#define M_PI 3.14159265358979323846
+#else
+#define _USE_MATH_DEFINES
 #include <math.h>
+#endif
+#endif
 
 #define DEGREE_TO_RADIAN(deg) ((deg)*M_PI / 180)
 #define RADIAN_TO_DEGREE(deg) ((deg)*180 / M_PI)

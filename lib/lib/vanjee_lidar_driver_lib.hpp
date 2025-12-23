@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -52,39 +52,84 @@ using namespace vanjee::lidar;
 typedef PointXYZI PointT;
 typedef PointCloudT<PointT> PointCloudMsg;
 
+class PointCloudClient {
+ public:
+  uint8_t lidar_id_;
+  PointCloudMsg point_cloud_msg_;
+};
+
+class ImuPacketClient : public ImuPacket {
+ public:
+  uint8_t lidar_id_;
+};
+
+class ScanDataClient : public ScanData {
+ public:
+  uint8_t lidar_id_;
+};
+
+class DeviceCtrlClient : public DeviceCtrl {
+ public:
+  uint8_t lidar_id_;
+};
+
+class PacketClient {
+ public:
+  uint8_t lidar_id_;
+  Packet packet_;
+};
+
+class LidarParameterInterfaceClient : public LidarParameterInterface {
+ public:
+  uint8_t lidar_id_;
+};
+
 class VanjeeLidarDriverLib {
  public:
   std::string name_;
+  uint8_t lidar_id_;
 
-  bool init(const WJDriverParam &param, const std::function<void(std::shared_ptr<PointCloudMsg>)> &cb_put_cloud,
-            const std::function<void(std::shared_ptr<ImuPacket>)> &cb_put_imu_pkt,
-            const std::function<void(std::shared_ptr<ScanData>)> &cb_put_scan_data,
-            const std::function<void(std::shared_ptr<DeviceCtrl>)> &cb_put_device_ctrl_state);
+  bool init(const WJDriverParam &param, const std::function<void(std::shared_ptr<PointCloudClient>)> &cb_put_cloud,
+            const std::function<void(std::shared_ptr<ImuPacketClient>)> &cb_put_imu_pkt,
+            const std::function<void(std::shared_ptr<ScanDataClient>)> &cb_put_scan_data,
+            const std::function<void(std::shared_ptr<DeviceCtrlClient>)> &cb_put_device_ctrl_state,
+            const std::function<void(std::shared_ptr<LidarParameterInterfaceClient>)> &cb_put_lidar_param);
 
   bool start();
 
   void stop();
 
+  void deviceCtrlApi(DeviceCtrl device_ctrl);
+  void lidarParameterApi(LidarParameterInterface lidar_param);
+
  protected:
   LidarDriver<PointCloudMsg> driver_;
-  SyncQueue<std::shared_ptr<PointCloudMsg>> free_cloud_queue_;
-  SyncQueue<std::shared_ptr<PointCloudMsg>> stuffed_cloud_queue_;
-  SyncQueue<std::shared_ptr<ImuPacket>> free_imu_queue_;
-  SyncQueue<std::shared_ptr<ImuPacket>> stuffed_imu_queue_;
-  SyncQueue<std::shared_ptr<ScanData>> free_scan_data_queue_;
-  SyncQueue<std::shared_ptr<ScanData>> stuffed_scan_data_queue_;
-  SyncQueue<std::shared_ptr<DeviceCtrl>> free_device_ctrl_queue_;
-  SyncQueue<std::shared_ptr<DeviceCtrl>> stuffed_device_ctrl_queue_;
+  SyncQueue<std::shared_ptr<PointCloudClient>> free_cloud_queue_;
+  SyncQueue<std::shared_ptr<PointCloudClient>> stuffed_cloud_queue_;
+  SyncQueue<std::shared_ptr<ImuPacketClient>> free_imu_queue_;
+  SyncQueue<std::shared_ptr<ImuPacketClient>> stuffed_imu_queue_;
+  SyncQueue<std::shared_ptr<ScanDataClient>> free_scan_data_queue_;
+  SyncQueue<std::shared_ptr<ScanDataClient>> stuffed_scan_data_queue_;
+  SyncQueue<std::shared_ptr<DeviceCtrlClient>> free_device_ctrl_queue_;
+  SyncQueue<std::shared_ptr<DeviceCtrlClient>> stuffed_device_ctrl_queue_;
+  SyncQueue<std::shared_ptr<PacketClient>> stuffed_packet_queue_;
+  SyncQueue<std::shared_ptr<LidarParameterInterfaceClient>> free_lidar_param_queue_;
+  SyncQueue<std::shared_ptr<LidarParameterInterfaceClient>> stuffed_lidar_param_queue_;
 
-  std::function<void(std::shared_ptr<PointCloudMsg>)> point_cloud_callback_;
-  std::function<void(std::shared_ptr<ImuPacket>)> imu_pack_callback_;
-  std::function<void(std::shared_ptr<ScanData>)> laser_scan_callback_;
-  std::function<void(std::shared_ptr<DeviceCtrl>)> device_ctrl_callback_;
+  std::function<void(std::shared_ptr<PointCloudClient>)> point_cloud_callback_;
+  std::function<void(std::shared_ptr<ImuPacketClient>)> imu_pack_callback_;
+  std::function<void(std::shared_ptr<ScanDataClient>)> laser_scan_callback_;
+  std::function<void(std::shared_ptr<DeviceCtrlClient>)> device_ctrl_callback_;
+  std::function<void(std::shared_ptr<LidarParameterInterfaceClient>)> lidar_param_callback_;
 
   std::thread point_cloud_thread_;
   std::thread imu_thread_;
   std::thread laser_scan_thread_;
   std::thread device_ctrl_thread_;
+  std::thread device_ctrl_cmd_thread_;
+  std::thread packet_thread_;
+  std::thread send_lidar_param_thread_;
+  std::thread recv_lidar_param_thread_;
 
  protected:
   // @brief allocate memory for point cloud，sdk would call this callback to get
@@ -106,10 +151,19 @@ class VanjeeLidarDriverLib {
   void laserScanCallback(std::shared_ptr<ScanData> msg);
 
   // @brief allocate memory for device ctrl would call this callback to get
-  // the memory for device ctrol storage.
+  // the memory for device ctrl storage.
   std::shared_ptr<DeviceCtrl> allocateDeviceCtrlMemoryCallback();
   // @brief this callback which would return the device ctrl to queue
   void deviceCtrlCallback(std::shared_ptr<DeviceCtrl> msg);
+
+  // @brief this callback which would return the packet to queue
+  void packetCallback(std::shared_ptr<Packet> msg);
+
+  // @brief allocate memory for lidar parameter would call this callback to get
+  // the memory for lidar parameter storage.
+  std::shared_ptr<LidarParameterInterface> allocateLidarParameterInterfaceMemoryCallback();
+  // @brief this callback which would return the lidar parameter to queue
+  void lidarParameterInterfaceCallback(std::shared_ptr<LidarParameterInterface> msg);
 
   // @brief this callback which would return the exception prompt information to
   // terminal
@@ -119,14 +173,36 @@ class VanjeeLidarDriverLib {
   void processImu();
   void processLaserScan();
   void processDeviceCtrl();
+  void processDeviceCtrlCmd();
+  void processPacket();
+  void processLidarParameterSend();
+  void processLidarParameterRecv();
 };
+
+SyncQueue<std::shared_ptr<DeviceCtrlClient>> device_ctrl_param_;
+SyncQueue<std::shared_ptr<LidarParameterInterfaceClient>> lidar_param_;
 
 bool to_exit_driver_ = false;
 bool driver_status_ = false;
 
+bool send_point_cloud_ros_;
+bool send_imu_packet_ros_;
+bool send_laser_scan_ros_;
+bool send_device_ctrl_state_ros_;
+bool recv_device_ctrl_cmd_ros_;
+bool send_packet_ros_;
+bool recv_packet_ros_;
+bool send_lidar_param_ros_;
+bool recv_lidar_param_cmd_ros_;
+
+void vanjeeLidarDriverDeviceCtrlApi(DeviceCtrlClient &device_ctrl);
+
+void vanjeeLidarDriverLidarParameterApi(LidarParameterInterfaceClient &lidar_param);
+
 bool vanjeeLidarDriverLibStop();
 
-int vanjeeLidarDriverLibStart(std::string config_path, const std::function<void(std::shared_ptr<PointCloudMsg>)> &cb_put_cloud,
-                              const std::function<void(std::shared_ptr<ImuPacket>)> &cb_put_imu_pkt,
-                              const std::function<void(std::shared_ptr<ScanData>)> &cb_put_scan_data,
-                              const std::function<void(std::shared_ptr<DeviceCtrl>)> &cb_put_device_ctrl_data);
+int vanjeeLidarDriverLibStart(std::string config_path, const std::function<void(std::shared_ptr<PointCloudClient>)> &cb_put_cloud,
+                              const std::function<void(std::shared_ptr<ImuPacketClient>)> &cb_put_imu_pkt,
+                              const std::function<void(std::shared_ptr<ScanDataClient>)> &cb_put_scan_data,
+                              const std::function<void(std::shared_ptr<DeviceCtrlClient>)> &cb_put_device_ctrl_state,
+                              const std::function<void(std::shared_ptr<LidarParameterInterfaceClient>)> &cb_put_lidar_param);

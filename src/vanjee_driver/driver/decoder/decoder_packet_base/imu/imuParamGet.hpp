@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -42,9 +42,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <iostream>
 #include <memory>
+#include <numeric>
 #include <vector>
+#ifdef ENABLE_TRANSFORM
+#include <Eigen/Dense>
+#endif
 
 #include <vanjee_driver/driver/decoder/decoder_packet_base/imu/complementary_filter.hpp>
+#include <vanjee_driver/driver/driver_param.hpp>
 
 #include "vanjee_driver/common/super_header.hpp"
 #include "vanjee_driver/common/wj_log.hpp"
@@ -69,16 +74,21 @@ class ImuParamGet {
   double z_acc_k_;
   double z_acc_b_;
 
-  double x_zero_param_;
-  double y_zero_param_;
-  double z_zero_param_;
+  typedef struct _ZeroParam_ {
+    double x;
+    double y;
+    double z;
+  } ZeroParam_;
+
+  ZeroParam_ zero_param_;
+  std::vector<ZeroParam_> zero_param_buf_;
 
   double rotate_b_[2][2];
 
   int32_t me_zero_param_time_;
   int32_t aim_me_zero_param_time_;
 
-  double dere_time_pre_;
+  double pre_pkt_time_;
 
   struct imuGetResultPa {
     double q0;
@@ -106,26 +116,63 @@ class ImuParamGet {
   // std::shared_ptr<imu_tools::ComplementaryFilter> m_filter_;
   imu_tools::ComplementaryFilter m_filter_;
 
-  ImuParamGet(double axisoffset = 0.0) {
+  WJTransfromParam param_;
+#ifdef ENABLE_TRANSFORM
+  Eigen::Matrix3d transform_r_;
+  Eigen::Vector3d transform_t_;
+
+  inline void getImuTransMatrix(double x, double y, double z, double roll, double pitch, double yaw) {
+    Eigen::AngleAxisd rollAngle(roll * M_PI / 180.0, Eigen::Vector3d::UnitX());
+    Eigen::AngleAxisd pitchAngle(pitch * M_PI / 180.0, Eigen::Vector3d::UnitY());
+    Eigen::AngleAxisd yawAngle(yaw * M_PI / 180.0, Eigen::Vector3d::UnitZ());
+    transform_r_ = yawAngle * pitchAngle * rollAngle;
+    transform_t_ << x, y, z;
+  }
+
+  inline void imuTransform(double &x_acc, double &y_acc, double &z_acc, double &x_ang, double &y_ang, double &z_ang) {
+    if (  // param_.x_imu != 0 || param_.y_imu  != 0 || param_.z_imu != 0 ||
+        param_.roll_imu != 0 || param_.pitch_imu != 0 || param_.yaw_imu != 0) {
+      Eigen::Vector3d acc_in(x_acc, y_acc, z_acc);
+      Eigen::Vector3d gyro_in(x_ang, y_ang, z_ang);
+      Eigen::Vector3d acc_out = transform_r_ * acc_in;
+      Eigen::Vector3d gyro_out = transform_r_ * gyro_in;
+      // acc_out += gyro_out.cross(gyro_out.cross(transform_t_));
+      x_acc = acc_out[0];
+      y_acc = acc_out[1];
+      z_acc = acc_out[2];
+      x_ang = gyro_out[0];
+      y_ang = gyro_out[1];
+      z_ang = gyro_out[2];
+    }
+  }
+#endif
+
+  ImuParamGet(double axis_offset = 0.0, const WJTransfromParam &param = WJTransfromParam()) {
+    param_ = param;
     x_ang_k_ = y_ang_k_ = z_ang_k_ = 1;
     x_ang_b_ = y_ang_b_ = z_ang_b_ = 0;
 
     x_acc_k_ = y_acc_k_ = z_acc_k_ = 1;
     x_acc_b_ = y_acc_b_ = z_acc_b_ = 0;
 
-    x_zero_param_ = y_zero_param_ = z_zero_param_ = 0;
+    zero_param_.x = 0;
+    zero_param_.y = 0;
+    zero_param_.z = 0;
 
-    rotate_b_[0][0] = cos(HDL_Grabber_toRadians(axisoffset));
-    rotate_b_[0][1] = -sin(HDL_Grabber_toRadians(axisoffset));
-    rotate_b_[1][0] = sin(HDL_Grabber_toRadians(axisoffset));
-    rotate_b_[1][1] = cos(HDL_Grabber_toRadians(axisoffset));
+    rotate_b_[0][0] = cos(HDL_Grabber_toRadians(axis_offset));
+    rotate_b_[0][1] = -sin(HDL_Grabber_toRadians(axis_offset));
+    rotate_b_[1][0] = sin(HDL_Grabber_toRadians(axis_offset));
+    rotate_b_[1][1] = cos(HDL_Grabber_toRadians(axis_offset));
 
     me_zero_param_time_ = 0;
-    aim_me_zero_param_time_ = 1000;
+    aim_me_zero_param_time_ = 40;
 
-    dere_time_pre_ = 0;
+    pre_pkt_time_ = 0;
 
     imu_result_stu_.init();
+#ifdef ENABLE_TRANSFORM
+    getImuTransMatrix(param.x_imu, param.y_imu, param.z_imu, param.roll_imu, param.pitch_imu, param.yaw_imu);
+#endif
   }
 
   ~ImuParamGet() {
@@ -149,10 +196,10 @@ class ImuParamGet {
     z_acc_b_ = z_b;
   }
 
-  inline void imuAngCorrbyTemp(double &x_ang, double &y_ang, double &z_ang, double imuTempreture) {
-    x_ang -= x_ang_k_ * (imuTempreture - 40) + x_ang_b_;
-    y_ang -= y_ang_k_ * (imuTempreture - 40) + y_ang_b_;
-    z_ang -= z_ang_k_ * (imuTempreture - 40) + z_ang_b_;
+  inline void imuAngCorrbyTemp(double &x_ang, double &y_ang, double &z_ang, double imu_temperature) {
+    x_ang -= x_ang_k_ * (imu_temperature - 40) + x_ang_b_;
+    y_ang -= y_ang_k_ * (imu_temperature - 40) + y_ang_b_;
+    z_ang -= z_ang_k_ * (imu_temperature - 40) + z_ang_b_;
   }
 
   inline void imuAccCorrbyKB(double &x_acc, double &y_acc, double &z_acc) {
@@ -173,16 +220,16 @@ class ImuParamGet {
   }
 
   int32_t imuGetZeroPa(double x_ang, double y_ang, double z_ang) {
-    x_zero_param_ += x_ang;
-    y_zero_param_ += y_ang;
-    z_zero_param_ += z_ang;
+    zero_param_.x += x_ang;
+    zero_param_.y += y_ang;
+    zero_param_.z += z_ang;
 
     return me_zero_param_time_++;
   }
 
-  bool imuGet(double x_ang, double y_ang, double z_ang, double x_acc, double y_acc, double z_acc, double time, double temperature = -100.0,
-              bool temperature_enable = true, bool old_coefficient_flag = true, bool calibration_param_enable = true, bool rotate_enbale = true,
-              bool zero_calibrate_enbale = true) {
+  bool imuGet(double x_ang, double y_ang, double z_ang, double x_acc, double y_acc, double z_acc, double time, bool imu_orientation_enable,
+              double temperature = -100.0, bool temperature_enable = true, bool old_coefficient_flag = true, bool calibration_param_enable = true,
+              bool rotate_enable = true, bool zero_calibrate_enable = true) {
     if (temperature_enable) {
       if (temperature <= -100.0)
         return false;
@@ -210,50 +257,70 @@ class ImuParamGet {
     if (calibration_param_enable)
       imuAccCorrbyKB(x_acc, y_acc, z_acc);
 
-    if (rotate_enbale)
+    if (rotate_enable)
       rotateImu(x_acc, y_acc, z_acc, x_ang, y_ang, z_ang);
 
-    double l_dertatime;
-    if (dere_time_pre_ < time) {
-      l_dertatime = time - dere_time_pre_;
+#ifdef ENABLE_TRANSFORM
+    imuTransform(x_acc, y_acc, z_acc, x_ang, y_ang, z_ang);
+#endif
+
+    double offset_time;
+    if (pre_pkt_time_ < time) {
+      offset_time = time - pre_pkt_time_;
     } else {
-      dere_time_pre_ = time;
+      pre_pkt_time_ = time;
       return false;
     }
-    dere_time_pre_ = time;
+    pre_pkt_time_ = time;
 
-    if (zero_calibrate_enbale) {
-      if (me_zero_param_time_ < aim_me_zero_param_time_ - 5) {
+    if (zero_calibrate_enable) {
+      if (zero_param_buf_.size() < 5) {
         imuGetZeroPa(x_ang, y_ang, z_ang);
-        return false;
-      } else if (me_zero_param_time_ >= aim_me_zero_param_time_ - 5 && me_zero_param_time_ < aim_me_zero_param_time_) {
-        imuGetZeroPa(x_ang, y_ang, z_ang);
-        double x_angle_offset_ = x_zero_param_ / me_zero_param_time_;
-        double y_angle_offset_ = y_zero_param_ / me_zero_param_time_;
-        double z_angle_offset_ = z_zero_param_ / me_zero_param_time_;
+        if (me_zero_param_time_ % aim_me_zero_param_time_ == 0) {
+          ZeroParam_ angle_offset;
+          angle_offset.x = zero_param_.x / aim_me_zero_param_time_;
+          angle_offset.y = zero_param_.y / aim_me_zero_param_time_;
+          angle_offset.z = zero_param_.z / aim_me_zero_param_time_;
+          zero_param_buf_.push_back(angle_offset);
 
-        if (std::abs(x_ang - x_angle_offset_) > 0.008 || std::abs(y_ang - y_angle_offset_) > 0.008 || std::abs(z_ang - z_angle_offset_) > 0.008) {
-          WJ_WARNING << "Do not move during IMU calibration" << WJ_REND;
-          WJ_INFO << "Waiting for IMU calibration..." << WJ_REND;
-          x_zero_param_ = 0.0;
-          y_zero_param_ = 0.0;
-          z_zero_param_ = 0.0;
-          me_zero_param_time_ = 0;
+          zero_param_.x = 0;
+          zero_param_.y = 0;
+          zero_param_.z = 0;
+
+          if (zero_param_buf_.size() > 1) {
+            if (std::abs(zero_param_buf_[zero_param_buf_.size() - 1].x - zero_param_buf_[zero_param_buf_.size() - 2].x) > 0.008 ||
+                std::abs(zero_param_buf_[zero_param_buf_.size() - 1].y - zero_param_buf_[zero_param_buf_.size() - 2].y) > 0.008 ||
+                std::abs(zero_param_buf_[zero_param_buf_.size() - 1].z - zero_param_buf_[zero_param_buf_.size() - 2].z) > 0.008) {
+              zero_param_buf_.erase(zero_param_buf_.begin() + zero_param_buf_.size() - 2);
+              WJ_WARNING << "Do not move during IMU calibration" << WJ_REND;
+              WJ_INFO << "Waiting for IMU calibration..." << WJ_REND;
+            }
+          }
         }
         return false;
-      } else if (me_zero_param_time_ == aim_me_zero_param_time_) {
-        x_zero_param_ /= aim_me_zero_param_time_;
-        y_zero_param_ /= aim_me_zero_param_time_;
-        z_zero_param_ /= aim_me_zero_param_time_;
-
+      } else if (zero_param_buf_.size() == 5) {
+        zero_param_.x =
+            std::accumulate(zero_param_buf_.begin(), zero_param_buf_.end(), 0.0, [](double sum, const ZeroParam_ &param) { return sum + param.x; }) /
+            zero_param_buf_.size();
+        zero_param_.y =
+            std::accumulate(zero_param_buf_.begin(), zero_param_buf_.end(), 0.0, [](double sum, const ZeroParam_ &param) { return sum + param.y; }) /
+            zero_param_buf_.size();
+        zero_param_.z =
+            std::accumulate(zero_param_buf_.begin(), zero_param_buf_.end(), 0.0, [](double sum, const ZeroParam_ &param) { return sum + param.z; }) /
+            zero_param_buf_.size();
+        zero_param_buf_.push_back(zero_param_);
         WJ_INFO << "Begin publish Imu" << WJ_REND;
-        me_zero_param_time_++;
+      }
+    } else {
+      if (me_zero_param_time_ == 0) {
+        WJ_INFO << "Begin publish Imu" << WJ_REND;
+        me_zero_param_time_ = 1;
       }
     }
 
-    x_ang = x_ang - x_zero_param_;
-    y_ang = y_ang - y_zero_param_;
-    z_ang = z_ang - z_zero_param_;
+    x_ang = x_ang - zero_param_.x;
+    y_ang = y_ang - zero_param_.y;
+    z_ang = z_ang - zero_param_.z;
 
     imu_result_stu_.x_angle = x_ang;
     imu_result_stu_.y_angle = y_ang;
@@ -268,8 +335,10 @@ class ImuParamGet {
     static double q2 = 0;
     static double q3 = 0;
 
-    m_filter_.update(x_acc, y_acc, z_acc, x_ang, y_ang, z_ang, l_dertatime, q0, q1, q2, q3);
-    m_filter_.getOrientation(q0, q1, q2, q3);
+    if (imu_orientation_enable) {
+      m_filter_.update(x_acc, y_acc, z_acc, x_ang, y_ang, z_ang, offset_time, q0, q1, q2, q3);
+      m_filter_.getOrientation(q0, q1, q2, q3);
+    }
 
     imu_result_stu_.q0 = q0;
     imu_result_stu_.q1 = q1;

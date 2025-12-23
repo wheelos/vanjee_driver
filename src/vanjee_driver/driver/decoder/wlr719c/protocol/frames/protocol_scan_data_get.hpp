@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -46,7 +46,7 @@ namespace vanjee {
 namespace lidar {
 class Protocol_ScanDataGet719C : public ProtocolAbstract719C {
  public:
-  Protocol_ScanDataGet719C() : ProtocolAbstract719C(CmdRepository719C::CreateInstance()->Sp_ScanDataGet, std::make_shared<Params_ScanData719C>()) {
+  Protocol_ScanDataGet719C() : ProtocolAbstract719C(CmdRepository719C::CreateInstance()->sp_scan_data_get_, std::make_shared<Params_ScanData719C>()) {
   }
 
   std::shared_ptr<std::vector<uint8>> GetRequest(std::shared_ptr<std::vector<uint8>> content = nullptr) {

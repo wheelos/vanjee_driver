@@ -1,5 +1,5 @@
 
-set (PACKAGE_VERSION "2.0.15")
+set (PACKAGE_VERSION "2.2.9")
 message(=============================================================)
 message("-- vanjee_driver Version : v${PACKAGE_VERSION}")
 message(=============================================================)

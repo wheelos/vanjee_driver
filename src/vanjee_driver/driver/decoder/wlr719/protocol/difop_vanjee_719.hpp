@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -51,26 +51,19 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace vanjee {
 namespace lidar {
 class DifopVanjee719 : public DifopBase {
- private:
-  uint16_t connect_type_;
-
  public:
   virtual void initGetDifoCtrlDataMapPtr();
-
-  DifopVanjee719(uint16_t connect_type) {
-    connect_type_ = connect_type;
-  }
 };
 
 void DifopVanjee719::initGetDifoCtrlDataMapPtr() {
   getDifoCtrlData_map_ptr_ = std::make_shared<std::map<uint16, GetDifoCtrlClass>>();
 
-  if (connect_type_ == 2) {
-    GetDifoCtrlClass getDifoCtrlData_HeartBeat(*(std::make_shared<Protocol_HeartBeat719>()->GetRequest()), false, 3000);
-    (*getDifoCtrlData_map_ptr_).emplace(CmdRepository719::CreateInstance()->Sp_HeartBeat->GetCmdKey(), getDifoCtrlData_HeartBeat);
-  } else {
+  if (this->param_.input_param.connect_type == 1) {
     GetDifoCtrlClass getDifoCtrlData_ScanDataGet(*(std::make_shared<Protocol_ScanDataGet719>()->GetRequest()), false, 3000);
-    (*getDifoCtrlData_map_ptr_).emplace(CmdRepository719::CreateInstance()->Sp_ScanDataGet->GetCmdKey(), getDifoCtrlData_ScanDataGet);
+    (*getDifoCtrlData_map_ptr_).emplace(CmdRepository719::CreateInstance()->sp_scan_data_get_->GetCmdKey(), getDifoCtrlData_ScanDataGet);
+  } else if (this->param_.input_param.connect_type == 2) {
+    GetDifoCtrlClass getDifoCtrlData_HeartBeat(*(std::make_shared<Protocol_HeartBeat719>()->GetRequest()), false, 3000);
+    (*getDifoCtrlData_map_ptr_).emplace(CmdRepository719::CreateInstance()->sp_heart_beat_->GetCmdKey(), getDifoCtrlData_HeartBeat);
   }
 }
 }  // namespace lidar

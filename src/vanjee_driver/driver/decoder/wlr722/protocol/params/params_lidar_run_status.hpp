@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -46,7 +46,7 @@ namespace lidar {
 class Params_LiDARRunStatus722 : public ParamsAbstract {
  public:
   std::array<uint8, 19> reserved_field_1_;
-  uint16 imu_temp_;
+  int16 imu_temp_;
   std::array<uint8, 26> reserved_field_2_;
 
  public:
@@ -57,7 +57,7 @@ class Params_LiDARRunStatus722 : public ParamsAbstract {
 
   virtual void Load(ProtocolBase& protocol) {
     auto buf = protocol.Content.data();
-    imu_temp_ = ((*(buf + 19) & 0xFF) << 8) + (*(buf + 20) & 0xFF);
+    imu_temp_ = ((*(buf + 21) & 0xFF) << 8) + (*(buf + 22) & 0xFF);
   }
 };
 }  // namespace lidar

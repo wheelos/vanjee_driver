@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -129,7 +129,18 @@ std::shared_ptr<PointCloudMsg> allocatePointCloudMemoryCallback(void) {
 // application from sdk
 void pointCloudCallback(std::shared_ptr<PointCloudMsg> msg) {
   pcl::PointCloud<pcl::PointXYZI>::Ptr pcl_pointcloud(new pcl::PointCloud<pcl::PointXYZI>);
-  pcl_pointcloud->points.swap(msg->points);
+  // pcl_pointcloud->points.swap(msg->points);
+  pcl_pointcloud->points.clear();
+  pcl_pointcloud->points.reserve(msg->points.size());
+  for (const auto& vanjee_point : msg->points) {
+    pcl::PointXYZI pcl_point;
+    pcl_point.x = vanjee_point.x;
+    pcl_point.y = vanjee_point.y;
+    pcl_point.z = vanjee_point.z;
+    pcl_point.intensity = vanjee_point.intensity;
+    pcl_pointcloud->points.push_back(pcl_point);
+  }
+
   pcl_pointcloud->height = msg->height;
   pcl_pointcloud->width = msg->width;
   pcl_pointcloud->is_dense = msg->is_dense;
@@ -174,6 +185,30 @@ void laserScanCallback(std::shared_ptr<ScanData> msg) {
 #endif
 }
 
+// @brief allocate memory for device control state，sdk would call this callback to get the
+// memory for device contrl state storage.
+std::shared_ptr<DeviceCtrl> allocateDeviceCtrlMemoryCallback() {
+  return std::make_shared<DeviceCtrl>();
+}
+
+// @brief this callback which would return the device control state to queue
+void deviceCtrlCallback(std::shared_ptr<DeviceCtrl> msg) {
+}
+
+// @brief this callback which would return the packet to queue
+void packetCallback(std::shared_ptr<Packet> msg) {
+}
+
+// @brief allocate memory for lidar parameter，sdk would call this callback to get the
+// memory for lidar parameter storage.
+std::shared_ptr<LidarParameterInterface> allocateLidarParameterInterfaceMemoryCallback() {
+  return std::make_shared<LidarParameterInterface>();
+}
+
+// @brief this callback which would return the lidar parameter state to queue
+void lidarParameterInterfaceCallback(std::shared_ptr<LidarParameterInterface> msg) {
+}
+
 int main(int argc, char* argv[]) {
   WJ_TITLE << "------------------------------------------------------" << WJ_REND;
   WJ_TITLE << "            Vanjee_Driver Viewer Version: v" << VANJEE_LIDAR_VERSION_MAJOR << "." << VANJEE_LIDAR_VERSION_MINOR << "."
@@ -192,20 +227,22 @@ int main(int argc, char* argv[]) {
 
   WJDriverParam param;
 
-  param.input_type = InputType::PCAP_FILE;
+  param.input_type = InputType::ONLINE_LIDAR;
   param.lidar_type = LidarType::vanjee_720_16;
   param.input_param.host_msop_port = 3001;
   param.input_param.lidar_msop_port = 3333;
   param.input_param.host_address = "192.168.2.88";
   param.input_param.lidar_address = "192.168.2.86";
+  param.decoder_param.wait_for_difop = true;
   param.input_param.pcap_path = "";
   param.input_param.pcap_rate = 10;
-  param.decoder_param.angle_path_ver = ".../src/vanjee_lidar_sdk/param/Vanjee_720_16.csv";
-  param.decoder_param.imu_param_path = ".../src/vanjee_lidar_sdk/param/vanjee_720_imu_param.csv";
-  param.decoder_param.config_from_file = true;
-  param.decoder_param.wait_for_difop = false;
-  param.decoder_param.imu_enable = 1;  // -1: disable IMU ; 0: enable IMU but calibrate IMU using default
-                                       // parameters ; 1: enable IMU;
+  param.decoder_param.config_from_file = false;
+  param.decoder_param.angle_path_ver = "<PROJECT_PATH>/src/vanjee_lidar_sdk/param/Vanjee_720_16_VA.csv";
+  param.decoder_param.angle_path_hor = "<PROJECT_PATH>/src/vanjee_lidar_sdk/param/Vanjee_720_HA.csv";
+  param.decoder_param.imu_param_path = "<PROJECT_PATH>/src/vanjee_lidar_sdk/param/vanjee_720_imu_param.csv";
+  param.decoder_param.point_cloud_enable = true;  // true: enable PointCloud2 msg; false: disable PointCloud2 msg
+  param.decoder_param.imu_enable = -1;            // -1: disable IMU ; 0: enable IMU but calibrate IMU using default
+                                                  // parameters ; 1: enable IMU;
 
   parseParam(argc, argv, param);
   param.print();
@@ -234,6 +271,16 @@ int main(int argc, char* argv[]) {
   // laserScanCallback, have to be implemented,and as the parameter of
   // regScanDataCallback function.
   driver.regScanDataCallback(allocateLaserScanMemoryCallback, laserScanCallback);
+  // @brief these two callback,allocateDeviceCtrlMemoryCallback and
+  // deviceCtrlCallback, have to be implemented,and as the parameter of
+  // regDeviceCtrlCallback function.
+  driver.regDeviceCtrlCallback(allocateDeviceCtrlMemoryCallback, deviceCtrlCallback);
+  // @brief packetCallback, have to be implemented,and as the parameter of regPacketCallback function.
+  driver.regPacketCallback(packetCallback);
+  // @brief these two callback,allocateLidarParameterInterfaceMemoryCallback and
+  // lidarParameterInterfaceCallback, have to be implemented,and as the parameter of
+  // regLidarParameterInterfaceCallback function.
+  driver.regLidarParameterInterfaceCallback(allocateLidarParameterInterfaceMemoryCallback, lidarParameterInterfaceCallback);
 
   if (!driver.init(param)) {
     WJ_ERROR << "Driver Initialize Error..." << WJ_REND;

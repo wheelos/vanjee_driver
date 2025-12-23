@@ -6,7 +6,7 @@ if(WIN32)
   cmake_policy(SET CMP0074 NEW) # CMake 3.12 required
 endif(WIN32)
 
-project(vanjee_driver VERSION 2.0.15)
+project(vanjee_driver VERSION 2.2.9)
 
 #=======================================
 # Code coverage detection (gcov)
@@ -49,7 +49,7 @@ option(ENABLE_DOUBLE_RCVBUF       "Enable double size of RCVBUF" OFF)
 option(ENABLE_WAIT_IF_QUEUE_EMPTY "Enable waiting for a while in handle thread if the queue is empty" OFF)
 option(ENABLE_EPOLL_RECEIVE       "Receive packets with epoll() instead of select()" OFF)
 
-option(ENABLE_STAMP_WITH_LOCAL    "Enable stamp point cloud with local time" OFF)
+option(ENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE    "Enable transform timestamp to datetime with local time zone" OFF)
 option(ENABLE_PCL_POINTCLOUD      "Enable PCL Point Cloud" OFF)
 option(ENABLE_GRAVITY_ACCELERATION_REMOVE      "Enable Gravity acceleration remove" OFF)
 
@@ -174,15 +174,6 @@ if(${ENABLE_GTEST})
  add_definitions("-DENABLE_GTEST")
 endif(${ENABLE_GTEST})
 
-option(ENABLE_TBB "Enable TBB" OFF)
-
-if(${ENABLE_TBB})
-add_definitions("-DENABLE_TBB")
-find_package(TBB REQUIRED)
-include_directories(${TBB_INCLUDE_DIR})
-
-endif(${ENABLE_TBB})
-
 #============================
 #  Build Demos, Tools, Tests
 #============================
@@ -195,9 +186,9 @@ if(${ENABLE_WAIT_IF_QUEUE_EMPTY})
   add_definitions("-DENABLE_WAIT_IF_QUEUE_EMPTY")
 endif(${ENABLE_WAIT_IF_QUEUE_EMPTY})
 
-if(${ENABLE_STAMP_WITH_LOCAL})
-  add_definitions("-DENABLE_STAMP_WITH_LOCAL")
-endif(${ENABLE_STAMP_WITH_LOCAL})
+if(${ENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE})
+  add_definitions("-DENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE")
+endif(${ENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE})
 
 if(${ENABLE_PCL_POINTCLOUD})
   add_definitions("-DENABLE_PCL_POINTCLOUD")

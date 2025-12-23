@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -48,8 +48,8 @@ class Params_LDAngle720_32 : public ParamsAbstract {
   uint8 num_of_lines_;
   /// @brief 1000 times the real vertical angle
   std::array<int32, 32> ver_angle_;
-
-  std::array<int32, 32> hor_angle_;
+  bool hor_angle_flag_;
+  std::array<int16, 32> hor_angle_;
 
  public:
   virtual std::shared_ptr<std::vector<uint8>> GetBytes() {
@@ -62,6 +62,12 @@ class Params_LDAngle720_32 : public ParamsAbstract {
     num_of_lines_ = *buf;
     int32* data = reinterpret_cast<int32*>(buf + 1);
     std::copy(data, data + ver_angle_.size(), std::begin(ver_angle_));
+
+    if (protocol.Content.size() == 193) {
+      hor_angle_flag_ = true;
+      int16* data_hor_angle = reinterpret_cast<int16*>(buf + 129);
+      std::copy(data_hor_angle, data_hor_angle + hor_angle_.size(), std::begin(hor_angle_));
+    }
   }
 };
 }  // namespace lidar

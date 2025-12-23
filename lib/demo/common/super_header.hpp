@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -37,6 +37,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 *********************************************************************************************************************/
 
 #pragma once
+#include <memory>
+#include <vector>
+
+namespace vanjee {
+namespace lidar {
 
 typedef unsigned char uint8;
 typedef signed char int8;
@@ -49,10 +54,11 @@ typedef signed long long int64;
 typedef float float32;
 typedef double float64;
 
-#include <memory>
-#include <vector>
 using ByteVector = std::vector<uint8>;
 using ByteVectorPtr = std::shared_ptr<std::vector<uint8>>;
 
 template <typename T>
 using TPtr = typename std::shared_ptr<T>;
+
+}  // namespace lidar
+}  // namespace vanjee

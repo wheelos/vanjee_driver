@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -86,13 +86,44 @@ class CheckClass {
 
     return crc16;
   }
+
+  static uint16 Crc16_719e(std::vector<uint8> &buf, uint32 start, uint32 len) {
+    static uint16 crctab_719e[256] = {
+        0x0000, 0xbd33, 0xcf3b, 0x7208, 0x2b2b, 0x9618, 0xe410, 0x5923, 0x5656, 0xeb65, 0x996d, 0x245e, 0x7d7d, 0xc04e, 0xb246, 0x0f75,
+        0xacac, 0x119f, 0x6397, 0xdea4, 0x8787, 0x3ab4, 0x48bc, 0xf58f, 0xfafa, 0x47c9, 0x35c1, 0x88f2, 0xd1d1, 0x6ce2, 0x1eea, 0xa3d9,
+        0xec05, 0x5136, 0x233e, 0x9e0d, 0xc72e, 0x7a1d, 0x0815, 0xb526, 0xba53, 0x0760, 0x7568, 0xc85b, 0x9178, 0x2c4b, 0x5e43, 0xe370,
+        0x40a9, 0xfd9a, 0x8f92, 0x32a1, 0x6b82, 0xd6b1, 0xa4b9, 0x198a, 0x16ff, 0xabcc, 0xd9c4, 0x64f7, 0x3dd4, 0x80e7, 0xf2ef, 0x4fdc,
+        0x6d57, 0xd064, 0xa26c, 0x1f5f, 0x467c, 0xfb4f, 0x8947, 0x3474, 0x3b01, 0x8632, 0xf43a, 0x4909, 0x102a, 0xad19, 0xdf11, 0x6222,
+        0xc1fb, 0x7cc8, 0x0ec0, 0xb3f3, 0xead0, 0x57e3, 0x25eb, 0x98d8, 0x97ad, 0x2a9e, 0x5896, 0xe5a5, 0xbc86, 0x01b5, 0x73bd, 0xce8e,
+        0x8152, 0x3c61, 0x4e69, 0xf35a, 0xaa79, 0x174a, 0x6542, 0xd871, 0xd704, 0x6a37, 0x183f, 0xa50c, 0xfc2f, 0x411c, 0x3314, 0x8e27,
+        0x2dfe, 0x90cd, 0xe2c5, 0x5ff6, 0x06d5, 0xbbe6, 0xc9ee, 0x74dd, 0x7ba8, 0xc69b, 0xb493, 0x09a0, 0x5083, 0xedb0, 0x9fb8, 0x228b,
+        0xdaae, 0x679d, 0x1595, 0xa8a6, 0xf185, 0x4cb6, 0x3ebe, 0x838d, 0x8cf8, 0x31cb, 0x43c3, 0xfef0, 0xa7d3, 0x1ae0, 0x68e8, 0xd5db,
+        0x7602, 0xcb31, 0xb939, 0x040a, 0x5d29, 0xe01a, 0x9212, 0x2f21, 0x2054, 0x9d67, 0xef6f, 0x525c, 0x0b7f, 0xb64c, 0xc444, 0x7977,
+        0x36ab, 0x8b98, 0xf990, 0x44a3, 0x1d80, 0xa0b3, 0xd2bb, 0x6f88, 0x60fd, 0xddce, 0xafc6, 0x12f5, 0x4bd6, 0xf6e5, 0x84ed, 0x39de,
+        0x9a07, 0x2734, 0x553c, 0xe80f, 0xb12c, 0x0c1f, 0x7e17, 0xc324, 0xcc51, 0x7162, 0x036a, 0xbe59, 0xe77a, 0x5a49, 0x2841, 0x9572,
+        0xb7f9, 0x0aca, 0x78c2, 0xc5f1, 0x9cd2, 0x21e1, 0x53e9, 0xeeda, 0xe1af, 0x5c9c, 0x2e94, 0x93a7, 0xca84, 0x77b7, 0x05bf, 0xb88c,
+        0x1b55, 0xa666, 0xd46e, 0x695d, 0x307e, 0x8d4d, 0xff45, 0x4276, 0x4d03, 0xf030, 0x8238, 0x3f0b, 0x6628, 0xdb1b, 0xa913, 0x1420,
+        0x5bfc, 0xe6cf, 0x94c7, 0x29f4, 0x70d7, 0xcde4, 0xbfec, 0x02df, 0x0daa, 0xb099, 0xc291, 0x7fa2, 0x2681, 0x9bb2, 0xe9ba, 0x5489,
+        0xf750, 0x4a63, 0x386b, 0x8558, 0xdc7b, 0x6148, 0x1340, 0xae73, 0xa106, 0x1c35, 0x6e3d, 0xd30e, 0x8a2d, 0x371e, 0x4516, 0xf825};
+    uint16_t crc16 = 0x00;
+    for (uint32_t i = 0; i < len; i++) {
+      uint8_t tblIndex = (uint8_t)((crc16 ^ buf[start + i]) & 0xff);
+      crc16 = (uint16_t)(crctab_719e[tblIndex] ^ (crc16 >> 8));
+    }
+    return crc16;
+  }
 };
 
 class ProtocolBase {
  public:
+  /// @brief version_v1: WLR-722Z and WLR-722F, version_safe: WLR-719E, version_base: others;
+  enum ProtocolVersionDifop { version_base = 0x00, version_v1 = 0x01, version_safe = 0x02 };
+  ProtocolVersionDifop protocol_version_ = ProtocolVersionDifop::version_base;
   /// @brief BigEndian-1 LittleEndian-2;
-  static uint8 ByteOrder;
+  enum DataEndiannessMode { big_endian = 0x01, little_endian = 0x02 };
+  uint8 ByteOrder = DataEndiannessMode::big_endian;
   static const uint16 FRAME_MIN_LENGTH = 28;
+  static const uint16 FRAME_MIN_LENGTH_V1 = 18;
   ByteVectorPtr Buffer;
 
   ByteVector Head = {0xFF, 0XAA};
@@ -102,6 +133,7 @@ class ProtocolBase {
   uint8 CheckType = 0x01;
   uint8 Type = 0x00;
   ByteVector DeviceType = {0x00, 0x00};
+  ByteVector Config = {0x00, 0x00, 0x00, 0x00};
   ByteVector Remain = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
   uint8 MainCmd = 0x00;
   uint8 SubCmd = 0x00;
@@ -112,8 +144,10 @@ class ProtocolBase {
 
  public:
   ProtocolBase(uint16 idx, uint32 timestamp, uint8 checkType, uint8 type, const ByteVector &deviceType, const ByteVector &remain, uint8 mainCmd,
-               uint8 subCmd, const ByteVector &cmdParams, const ByteVector &content) {
-    if (ByteOrder == 1) {
+               uint8 subCmd, const ByteVector &cmdParams, const ByteVector &content, uint8_t byte_order = DataEndiannessMode::big_endian,
+               uint16 head = 0xFFAA) {
+    ByteOrder = byte_order;
+    if (ByteOrder == DataEndiannessMode::big_endian) {
       Idx[0] = (idx >> 8) & 0xFF;
       Idx[1] = (idx >> 0) & 0xFF;
 
@@ -139,10 +173,14 @@ class ProtocolBase {
     SubCmd = subCmd;
     CmdParams = cmdParams;
     Content = content;
+    Head[0] = (uint8_t)((head >> 8) & 0xFF);
+    Head[1] = (uint8_t)(head & 0xFF);
   }
 
   ProtocolBase(const ByteVector &idx, const ByteVector &timestamp, uint8 checkType, uint8 type, ByteVector &deviceType, ByteVector &remain,
-               uint8 mainCmd, uint8 subCmd, const ByteVector &cmdParams, const ByteVector &content) {
+               uint8 mainCmd, uint8 subCmd, const ByteVector &cmdParams, const ByteVector &content,
+               uint8_t byte_order = DataEndiannessMode::big_endian, uint16 head = 0xFFAA) {
+    ByteOrder = byte_order;
     Idx = idx;
     Timestamp = timestamp;
     CheckType = checkType;
@@ -153,12 +191,42 @@ class ProtocolBase {
     SubCmd = subCmd;
     CmdParams = cmdParams;
     Content = content;
+    Head[0] = (uint8_t)((head >> 8) & 0xFF);
+    Head[1] = (uint8_t)(head & 0xFF);
   }
 
-  ProtocolBase() {
+  ProtocolBase(uint8 checkType, uint8 type, ByteVector &deviceType, uint8 mainCmd, uint8 subCmd, const ByteVector &content,
+               uint8_t byte_order = DataEndiannessMode::big_endian, uint16 head = 0xFFAA) {
+    ByteOrder = byte_order;
+    CheckType = checkType;
+    Type = type;
+    DeviceType = deviceType;
+    Config[0] = deviceType[1];
+    Config[1] = (uint8)(type | (checkType << 1));
+    Config[2] = 0;
+    Config[3] = 0;
+    MainCmd = mainCmd;
+    SubCmd = subCmd;
+    Content = content;
+    Head[0] = (uint8_t)((head >> 8) & 0xFF);
+    Head[1] = (uint8_t)(head & 0xFF);
+  }
+
+  ProtocolBase(uint8_t byte_order = DataEndiannessMode::big_endian) {
+    ByteOrder = byte_order;
   }
 
   bool Parse(ByteVector &buf) {
+    if (protocol_version_ == ProtocolVersionDifop::version_v1) {
+      return ParseVersionV1(buf);
+    } else if (protocol_version_ == ProtocolVersionDifop::version_safe) {
+      return ParseVersionSafe(buf);
+    } else {
+      return ParseVersionBase(buf);
+    }
+  }
+
+  bool ParseVersionBase(ByteVector &buf) {
     Buffer = std::make_shared<ByteVector>(buf);
     if (Buffer->size() < FRAME_MIN_LENGTH)
       return false;
@@ -211,15 +279,140 @@ class ProtocolBase {
         return false;
       }
     }
-
     return false;
   }
 
-  ByteVectorPtr GetBytes() {
+  bool ParseVersionV1(ByteVector &buf) {
+    Buffer = std::make_shared<ByteVector>(buf);
+    if (Buffer->size() < FRAME_MIN_LENGTH_V1)
+      return false;
+
+    if (!(Head[0] == (*Buffer)[0] && Head[1] == (*Buffer)[1] && Tail[0] == (*Buffer)[Buffer->size() - 2] && Tail[1] == (*Buffer)[Buffer->size() - 1]))
+      return false;
+    int idx = 2;
+
+    auto itr = Buffer->begin() + idx;
+    std::copy(itr, itr + Length.size(), Length.begin());
+    itr = itr + Length.size();
+
+    std::copy(itr, itr + Config.size(), Config.begin());
+    itr = itr + Config.size();
+
+    DeviceType[0] = 0;
+    DeviceType[1] = Config[0];
+    CheckType = (Config[1] & 0x06) >> 1;
+    Type = Config[1] & 0x01;
+
+    MainCmd = *itr++;
+    SubCmd = *itr++;
+    Content.clear();
+    Content.shrink_to_fit();
+    Content.assign(itr, Buffer->end() - 4);
+    itr = itr + Content.size();
+
+    std::copy(itr, itr + Check.size(), Check.begin());
+    itr = itr + Check.size();
+
+    if (CheckType == CheckClass::No_Check)
+      return true;
+
+    if (CheckType == CheckClass::Xor_Check) {
+      if (CheckClass::Xor(buf, 2, buf.size() - 6) == (uint16)((Check[0] << 8) + Check[1])) {
+        return true;
+      } else {
+        return false;
+      }
+    }
+
+    if (CheckType == CheckClass::Crc16_Check) {
+      if (CheckClass::Crc16(buf, 2, buf.size() - 6) == (uint16)((Check[0] << 8) + Check[1])) {
+        return true;
+      } else {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  bool ParseVersionSafe(ByteVector &buf) {
+    Buffer = std::make_shared<ByteVector>(buf);
+    if (Buffer->size() < FRAME_MIN_LENGTH)
+      return false;
+
+    if (!(Head[0] == (*Buffer)[0] && Head[1] == (*Buffer)[1] && Tail[0] == (*Buffer)[Buffer->size() - 2] && Tail[1] == (*Buffer)[Buffer->size() - 1]))
+      return false;
+    int idx = 2;
+
+    auto itr = Buffer->begin() + idx;
+    std::copy(itr, itr + Length.size(), Length.begin());
+    itr = itr + Length.size();
+    std::copy(itr, itr + Idx.size(), Idx.begin());
+    itr = itr + Idx.size();
+    std::copy(itr, itr + Timestamp.size(), Timestamp.begin());
+    itr = itr + Timestamp.size();
+    CheckType = *itr++;
+    Type = *itr++;
+    std::copy(itr, itr + DeviceType.size(), DeviceType.begin());
+    itr = itr + DeviceType.size();
+    std::copy(itr, itr + Remain.size(), Remain.begin());
+    itr = itr + Remain.size();
+    MainCmd = *itr++;
+    SubCmd = *itr++;
+
+    std::copy(itr, itr + CmdParams.size(), CmdParams.begin());
+    itr = itr + CmdParams.size();
+    Content.clear();
+    Content.shrink_to_fit();
+    Content.assign(itr, Buffer->end() - 4);
+    itr = itr + Content.size();
+
+    std::copy(itr, itr + Check.size(), Check.begin());
+    itr = itr + Check.size();
+
+    if (CheckType == CheckClass::No_Check)
+      return true;
+
+    if (CheckType == CheckClass::Xor_Check) {
+      if (CheckClass::Xor(buf, 2, buf.size() - 6) == (uint16)((Check[0] << 8) + Check[1])) {
+        return true;
+      } else {
+        return false;
+      }
+    }
+
+    if (CheckType == CheckClass::Crc16_Check) {
+      uint16 check = 0;
+      if (ByteOrder == DataEndiannessMode::big_endian)
+        check = (uint16)((Check[0] << 8) + Check[1]);
+      else
+        check = (uint16)((Check[1] << 8) + Check[0]);
+
+      if (CheckClass::Crc16_719e(buf, 2, buf.size() - 6) == check) {
+        return true;
+      } else {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  ByteVectorPtr GetBytes(ProtocolVersionDifop protocolVersion = ProtocolVersionDifop::version_base) {
+    ByteVectorPtr buf = std::make_shared<std::vector<uint8>>();
+    if (protocolVersion == ProtocolVersionDifop::version_v1) {
+      return GetBytesVersionV1();
+    } else if (protocolVersion == ProtocolVersionDifop::version_safe) {
+      return GetBytesVersionSafe();
+    } else {
+      return GetBytesVersionBase();
+    }
+  }
+
+  ByteVectorPtr GetBytesVersionBase() {
+    ByteVectorPtr buf = std::make_shared<std::vector<uint8>>();
     int len = Length.size() + Idx.size() + Timestamp.size() + 1 + 1 + DeviceType.size() + Remain.size() + 1 + 1 + CmdParams.size() + Content.size() +
               Check.size();
 
-    if (ByteOrder == 1) {
+    if (ByteOrder == DataEndiannessMode::big_endian) {
       Length[0] = (uint8)((len >> 8) & 0xFF);
       Length[1] = (uint8)(len & 0xFF);
     } else {
@@ -227,7 +420,6 @@ class ProtocolBase {
       Length[1] = (uint8)((len >> 8) & 0xFF);
     }
 
-    ByteVectorPtr buf = std::make_shared<std::vector<uint8>>();
     buf->insert(buf->end(), Head.begin(), Head.end());
     buf->insert(buf->end(), Length.begin(), Length.end());
     buf->insert(buf->end(), Idx.begin(), Idx.end());
@@ -250,12 +442,89 @@ class ProtocolBase {
 
     buf->insert(buf->end(), Check.begin(), Check.end());
     buf->insert(buf->end(), Tail.begin(), Tail.end());
+    return buf;
+  }
 
+  ByteVectorPtr GetBytesVersionV1() {
+    ByteVectorPtr buf = std::make_shared<std::vector<uint8>>();
+    int len = Length.size() + 4 + 1 + 1 + Content.size() + Check.size();
+
+    if (ByteOrder == DataEndiannessMode::big_endian) {
+      Length[0] = (uint8)((len >> 8) & 0xFF);
+      Length[1] = (uint8)(len & 0xFF);
+    } else {
+      Length[0] = (uint8)(len & 0xFF);
+      Length[1] = (uint8)((len >> 8) & 0xFF);
+    }
+
+    buf->insert(buf->end(), Head.begin(), Head.end());
+    buf->insert(buf->end(), Length.begin(), Length.end());
+    buf->insert(buf->end(), Config.begin(), Config.end());
+
+    buf->emplace_back(MainCmd);
+    buf->emplace_back(SubCmd);
+    buf->insert(buf->end(), Content.begin(), Content.end());
+    if (CheckType == (uint8)CheckClass::Xor_Check) {
+      Check[0] = 0;
+      Check[1] = CheckClass::Xor(*buf, 2, buf->size() - 2);
+    } else if (CheckType == (uint8)CheckClass::Crc16_Check) {
+      Check[0] = 0;
+      Check[1] = CheckClass::Crc16(*buf, 2, buf->size() - 2);
+    }
+
+    buf->insert(buf->end(), Check.begin(), Check.end());
+    buf->insert(buf->end(), Tail.begin(), Tail.end());
+    return buf;
+  }
+
+  ByteVectorPtr GetBytesVersionSafe() {
+    ByteVectorPtr buf = std::make_shared<std::vector<uint8>>();
+    int len = Length.size() + Idx.size() + Timestamp.size() + 1 + 1 + DeviceType.size() + Remain.size() + 1 + 1 + CmdParams.size() + Content.size() +
+              Check.size();
+
+    if (ByteOrder == DataEndiannessMode::big_endian) {
+      Length[0] = (uint8)((len >> 8) & 0xFF);
+      Length[1] = (uint8)(len & 0xFF);
+    } else {
+      Length[0] = (uint8)(len & 0xFF);
+      Length[1] = (uint8)((len >> 8) & 0xFF);
+    }
+
+    buf->insert(buf->end(), Head.begin(), Head.end());
+    buf->insert(buf->end(), Length.begin(), Length.end());
+    buf->insert(buf->end(), Idx.begin(), Idx.end());
+    buf->insert(buf->end(), Timestamp.begin(), Timestamp.end());
+    buf->emplace_back(CheckType);
+    buf->emplace_back(Type);
+    buf->insert(buf->end(), DeviceType.begin(), DeviceType.end());
+    buf->insert(buf->end(), Remain.begin(), Remain.end());
+    buf->emplace_back(MainCmd);
+    buf->emplace_back(SubCmd);
+    buf->insert(buf->end(), CmdParams.begin(), CmdParams.end());
+    buf->insert(buf->end(), Content.begin(), Content.end());
+    if (CheckType == (uint8)CheckClass::Xor_Check) {
+      Check[0] = 0;
+      Check[1] = CheckClass::Xor(*buf, 2, buf->size() - 2);
+    } else if (CheckType == (uint8)CheckClass::Crc16_Check) {
+      uint16_t check = CheckClass::Crc16_719e(*buf, 2, buf->size() - 2);
+      if (ByteOrder == DataEndiannessMode::big_endian) {
+        Check[0] = (check >> 8) & 0xff;
+        Check[1] = check & 0xff;
+      } else {
+        Check[0] = check & 0xff;
+        Check[1] = (check >> 8) & 0xff;
+      }
+    }
+
+    buf->insert(buf->end(), Check.begin(), Check.end());
+    buf->insert(buf->end(), Tail.begin(), Tail.end());
     return buf;
   }
 
   std::shared_ptr<ProtocolBase> CreateNew() {
     std::shared_ptr<ProtocolBase> pb(new ProtocolBase());
+    pb->protocol_version_ = protocol_version_;
+    pb->ByteOrder = ByteOrder;
 
     pb->Head = Head;
     pb->Length = Length;
@@ -267,10 +536,34 @@ class ProtocolBase {
     pb->Check = Check;
     pb->Tail = Tail;
 
+    pb->CheckType = CheckType;
+    pb->Type = Type;
+    pb->Config = Config;
+
     return pb;
+  }
+
+  void SetHeader(uint16_t head) {
+    Head[0] = (uint8_t)((head >> 8) & 0xff);
+    Head[1] = (uint8_t)(head & 0xff);
+  }
+
+  uint16_t GetHeader() {
+    return (uint16_t)(Head[0] << 8 | Head[1]);
+  }
+
+  void SetByteOrder(uint8_t byte_order) {
+    ByteOrder = byte_order;
+  }
+
+  uint8_t GetByteOrder() {
+    return ByteOrder;
+  }
+
+  void SetProtocolVersion(ProtocolVersionDifop protocol_version) {
+    protocol_version_ = protocol_version;
   }
 };
 
-uint8 ProtocolBase::ByteOrder = 1;
 }  // namespace lidar
 }  // namespace vanjee

@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -45,6 +45,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 #include "device_ctrl_msg.hpp"
 #include "imu_packet.hpp"
+#include "lidar_parameter_interface_msg.hpp"
+#include "packet.hpp"
 #include "scan_data_msg.hpp"
 
 using namespace vanjee::lidar;
@@ -52,8 +54,40 @@ using namespace vanjee::lidar;
 typedef PointXYZI PointT;
 typedef PointCloudT<PointT> PointCloudMsg;
 
-extern int vanjeeLidarDriverLibStart(std::string config_path, const std::function<void(std::shared_ptr<PointCloudMsg>)> &cb_put_cloud,
-                                     const std::function<void(std::shared_ptr<vanjee::lidar::ImuPacket>)> &cb_put_imu_pkt,
-                                     const std::function<void(std::shared_ptr<vanjee::lidar::ScanData>)> &cb_put_scan_data,
-                                     const std::function<void(std::shared_ptr<vanjee::lidar::DeviceCtrl>)> &cb_put_device_ctrl_state);
+class PointCloudClient {
+ public:
+  uint8_t lidar_id_;
+  PointCloudMsg point_cloud_msg_;
+};
+
+class ImuPacketClient : public vanjee::lidar::ImuPacket {
+ public:
+  uint8_t lidar_id_;
+};
+
+class ScanDataClient : public vanjee::lidar::ScanData {
+ public:
+  uint8_t lidar_id_;
+};
+
+class DeviceCtrlClient : public vanjee::lidar::DeviceCtrl {
+ public:
+  uint8_t lidar_id_;
+};
+
+class LidarParameterInterfaceClient : public LidarParameterInterface {
+ public:
+  uint8_t lidar_id_;
+};
+
+extern void vanjeeLidarDriverDeviceCtrlApi(DeviceCtrlClient &deviceCtrl);
+
+extern void vanjeeLidarDriverLidarParameterApi(LidarParameterInterfaceClient &lidar_param);
+
+extern int vanjeeLidarDriverLibStart(std::string config_path, const std::function<void(std::shared_ptr<PointCloudClient>)> &cb_put_cloud,
+                                     const std::function<void(std::shared_ptr<ImuPacketClient>)> &cb_put_imu_pkt,
+                                     const std::function<void(std::shared_ptr<ScanDataClient>)> &cb_put_scan_data,
+                                     const std::function<void(std::shared_ptr<DeviceCtrlClient>)> &cb_put_device_ctrl_state,
+                                     const std::function<void(std::shared_ptr<LidarParameterInterfaceClient>)> &cb_put_lidar_param);
+
 extern bool vanjeeLidarDriverLibStop();

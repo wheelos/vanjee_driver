@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -44,19 +44,26 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vanjee_driver/driver/input/input_pcap.hpp>
 #endif
 
+#include <vanjee_driver/driver/input/input_raw_packet.hpp>
+#include <vanjee_driver/driver/input/serial/input_serial_port.hpp>
+
 namespace vanjee {
 namespace lidar {
 class InputFactory {
  public:
-  static std::shared_ptr<Input> createInput(InputType type, const WJInputParam &param, double sec_to_delay);
+  static std::shared_ptr<Input> createInput(InputType type, const WJInputParam& param, double sec_to_delay,
+                                            std::function<void(const uint8_t*, size_t)>& cb_feed_pkt);
 };
 
-inline std::shared_ptr<Input> InputFactory::createInput(InputType type, const WJInputParam &param, double sec_to_delay) {
+inline std::shared_ptr<Input> InputFactory::createInput(InputType type, const WJInputParam& param, double sec_to_delay,
+                                                        std::function<void(const uint8_t*, size_t)>& cb_feed_pkt) {
   std::shared_ptr<Input> input;
   switch (type) {
     case InputType::ONLINE_LIDAR: {
       if (param.connect_type == 2)
         input = std::make_shared<InputTcpSocket>(param);
+      else if (param.connect_type == 3)
+        input = std::make_shared<InputSerialPort>(param, sec_to_delay);
       else
         input = std::make_shared<InputUdpSocket>(param);
     } break;
@@ -67,6 +74,14 @@ inline std::shared_ptr<Input> InputFactory::createInput(InputType type, const WJ
     } break;
 
 #endif
+
+    case InputType::RAW_PACKET: {
+      std::shared_ptr<InputRaw> inputRaw;
+      inputRaw = std::make_shared<InputRaw>(param);
+      cb_feed_pkt = std::bind(&InputRaw::feedPacket, inputRaw, std::placeholders::_1, std::placeholders::_2);
+      input = inputRaw;
+    } break;
+
     default:
       WJ_ERROR << "Wrong Input Type " << type << "." << WJ_REND;
       if (type == InputType::PCAP_FILE) {

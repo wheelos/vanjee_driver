@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -37,19 +37,20 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 *********************************************************************************************************************/
 
 #pragma once
+#include <vanjee_driver/driver/decoder/basic_attr.hpp>
 
 #define USECOUT
 
 #ifdef USECOUT
 #include <iostream>
-#define WJ_ERROR std::cout << "\033[1m\033[31m"
-#define WJ_WARNING std::cout << "\033[1m\033[33m"
-#define WJ_INFO std::cout << "\033[1m\033[32m"
-#define WJ_INFOL std::cout << "\033[32m"
-#define WJ_DEBUG std::cout << "\033[1m\033[36m"
+#define WJ_ERROR std::cout << "\033[1m\033[31m" << getHostDatetime()
+#define WJ_WARNING std::cout << "\033[1m\033[33m" << getHostDatetime()
+#define WJ_INFO std::cout << "\033[1m\033[32m" << getHostDatetime()
+#define WJ_INFOL std::cout << "\033[32m" << getHostDatetime()
+#define WJ_DEBUG std::cout << "\033[1m\033[36m" << getHostDatetime()
 
-#define WJ_TITLE std::cout << "\033[1m\033[35m"
-#define WJ_MSG std::cout << "\033[1m\033[37m"
+#define WJ_TITLE std::cout << "\033[1m\033[35m" << getHostDatetime()
+#define WJ_MSG std::cout << "\033[1m\033[37m" << getHostDatetime()
 #define WJ_REND "\033[0m" << std::endl
 
 #else
@@ -59,32 +60,32 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define WJ_ERROR            \
   {                         \
     std::ostringstream oss; \
-    oss << "\033[1m\033[31m[ERROR]"
+    oss << "\033[1m\033[31m" << getHostDatetime() << "[ERROR]"
 #define WJ_WARNING          \
   {                         \
     std::ostringstream oss; \
-    oss << "\033[1m\033[33m[WARNING]"
+    oss << "\033[1m\033[33m" << getHostDatetime() << "[WARNING]"
 #define WJ_INFO             \
   {                         \
     std::ostringstream oss; \
-    oss << "\033[1m\033[32m[INFO]"
+    oss << "\033[1m\033[32m" << getHostDatetime() << "[INFO]"
 #define WJ_INFOL            \
   {                         \
     std::ostringstream oss; \
-    oss << "\033[32m[INFOl]"
+    oss << "\033[32m" << getHostDatetime() << "[INFOl]"
 #define WJ_DEBUG            \
   {                         \
     std::ostringstream oss; \
-    oss << "\033[1m\033[36m[DEBUG]"
+    oss << "\033[1m\033[36m" << getHostDatetime() << "[DEBUG]"
 
 #define WJ_TITLE            \
   {                         \
     std::ostringstream oss; \
-    oss << "\033[1m\033[35m[TITLE]"
+    oss << "\033[1m\033[35m" << getHostDatetime() << "[TITLE]"
 #define WJ_MSG              \
   {                         \
     std::ostringstream oss; \
-    oss << "\033[1m\033[37m[MSG]"
+    oss << "\033[1m\033[37m" << getHostDatetime() << "[MSG]"
 #define WJ_REND                    \
   "\033[0m" << std::endl;          \
   printf("%s", oss.str().c_str()); \

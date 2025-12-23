@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -48,8 +48,16 @@ namespace vanjee {
 namespace lidar {
 class DifopVanjee750 : public DifopBase {
  public:
+  explicit DifopVanjee750();
   virtual void initGetDifoCtrlDataMapPtr();
+  virtual void singleParsingProcess();
 };
+
+inline DifopVanjee750::DifopVanjee750() {
+  ProtocolBase pb;
+  pb.SetHeader(0xFFFE);
+  this->setOrgProtocolBase(pb);
+}
 
 void DifopVanjee750::initGetDifoCtrlDataMapPtr() {
   getDifoCtrlData_map_ptr_ = std::make_shared<std::map<uint16, GetDifoCtrlClass>>();
@@ -60,5 +68,39 @@ void DifopVanjee750::initGetDifoCtrlDataMapPtr() {
   (*getDifoCtrlData_map_ptr_)
       .emplace(CmdRepository750::CreateInstance()->set_protocol_version_cmd_id_ptr_->GetCmdKey(), getDifoCtrlData_ProtocolVersionSet);
 }
+
+void DifopVanjee750::singleParsingProcess() {
+  std::shared_ptr<BufInfo> bufInfo;
+  while (!to_exit_recv_) {
+    bufInfo = BufInfo_Queue_.popWait(100000);
+    if (bufInfo.get() == NULL)
+      continue;
+    std::vector<uint8> &data = *(bufInfo->Buf);
+
+    if (data.size() < ProtocolBase::FRAME_MIN_LENGTH)
+      continue;
+
+    if (!(data[0] == 0xFF && data[1] == 0xFE))
+      continue;
+
+    uint32 frameLen = 0;
+    if (OrgProtocol.GetByteOrder() == ProtocolBase::DataEndiannessMode::big_endian)
+      frameLen = (data[2] << 8) + data[3] + 4;
+    else
+      frameLen = data[2] + (data[3] << 8) + 4;
+
+    if (frameLen > data.size())
+      continue;
+
+    if (!(data[frameLen - 2] == 0xEE && data[frameLen - 1] == 0xEE))
+      continue;
+
+    auto protocol = OrgProtocol.CreateNew();
+    if (protocol->Parse(data)) {
+      frameCb_(protocol);
+    }
+  }
+}
+
 }  // namespace lidar
 }  // namespace vanjee

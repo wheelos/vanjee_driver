@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -65,6 +65,16 @@ void DifopVanjee720::initGetDifoCtrlDataMapPtr() {
 
   GetDifoCtrlClass getDifoCtrlData_ImuTempGet(*(std::make_shared<Protocol_ImuTempGet>()->GetRequest()), false, 1000);
   (*getDifoCtrlData_map_ptr_).emplace(CmdRepository720::CreateInstance()->sp_temperature_param_get_->GetCmdKey(), getDifoCtrlData_ImuTempGet);
+
+  GetDifoCtrlClass getDifoCtrlData_Sn(*(std::make_shared<Protocol_SnGet720>()->GetRequest()));
+  (*getDifoCtrlData_map_ptr_).emplace(CmdRepository720::CreateInstance()->sp_sn_param_get_->GetCmdKey(), getDifoCtrlData_Sn);
+
+  for (uint8_t i = 0; i < 15; i++) {
+    std::shared_ptr<std::vector<uint8_t>> content =
+        std::make_shared<std::vector<uint8_t>>(std::initializer_list<uint8_t>{0x00, uint8_t(i + 1), 0x03, 0xc0});
+    GetDifoCtrlClass getDifoCtrlData_LDEccentricityParamGet(*(std::make_shared<Protocol_LDEccentricityParamGet720>()->GetRequest(content)));
+    (*getDifoCtrlData_map_ptr_).emplace(i + 1, getDifoCtrlData_LDEccentricityParamGet);
+  }
 }
 }  // namespace lidar
 }  // namespace vanjee

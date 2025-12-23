@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -55,6 +55,7 @@ class ProtocolAbstract {
   uint8 Type;
   ByteVector DeviceType;
   ByteVector Remain;
+  ByteVector Config;
   std::shared_ptr<CmdClass> Sp_Cmd;
   ByteVector CmdParams;
   std::shared_ptr<ParamsAbstract> Params;
@@ -84,7 +85,31 @@ class ProtocolAbstract {
     Params = content;
   }
 
-  virtual bool Load(ProtocolBase protocol) {
+  ProtocolAbstract(uint8 checkType, uint8 type, const ByteVector &deviceType, std::shared_ptr<CmdClass> sp_cmd,
+                   std::shared_ptr<ParamsAbstract> content) {
+    CheckType = checkType;
+    Type = type;
+    DeviceType = deviceType;
+
+    Config = ByteVector({0x00, 0x00, 0x00, 0x00});
+    Config[0] = deviceType[1];
+    Config[1] = (uint8)(type | (checkType << 1));
+    Config[2] = 0;
+    Config[3] = 0;
+
+    Sp_Cmd = sp_cmd;
+    Params = content;
+  }
+
+  virtual bool Load(ProtocolBase &protocol, ProtocolBase::ProtocolVersionDifop protocolVersion = ProtocolBase::ProtocolVersionDifop::version_base) {
+    if (protocolVersion == ProtocolBase::ProtocolVersionDifop::version_v1) {
+      return LoadVersionV1(protocol);
+    } else {
+      return LoadVersionBase(protocol);
+    }
+  }
+
+  bool LoadVersionBase(ProtocolBase &protocol) {
     Idx = *reinterpret_cast<uint16 *>(protocol.Idx.data());
     Timestamp = *reinterpret_cast<uint32 *>(protocol.Timestamp.data());
     CheckType = protocol.CheckType;
@@ -96,17 +121,28 @@ class ProtocolAbstract {
     return true;
   }
 
+  bool LoadVersionV1(ProtocolBase &protocol) {
+    CheckType = protocol.CheckType;
+    Type = protocol.Type;
+    DeviceType = protocol.DeviceType;
+    Config = protocol.Config;
+    Sp_Cmd.reset(new CmdClass(protocol.MainCmd, protocol.SubCmd));
+    Params->Load(protocol);
+    return true;
+  }
+
   virtual std::shared_ptr<std::vector<uint8>> GetRequest(std::shared_ptr<std::vector<uint8>> content = nullptr) {
     if (content == nullptr) {
       std::array<uint8, 4> arr = {0x00, 0x00, 0x00, 0x00};
       content = std::make_shared<std::vector<uint8>>(arr.begin(), arr.begin() + sizeof(arr) / sizeof(uint8));
     }
-
+    // ProtocolBase pb(CheckType, Type, DeviceType, Sp_Cmd->MainCmd, Sp_Cmd->SubCmd, *content);
     ProtocolBase pb(Idx, Timestamp, CheckType, Type, DeviceType, Remain, Sp_Cmd->MainCmd, Sp_Cmd->SubCmd, CmdParams, *content);
     return pb.GetBytes();
   }
 
   virtual std::shared_ptr<std::vector<uint8>> SetRequest() {
+    // ProtocolBase pb(CheckType, Type, DeviceType, Sp_Cmd->MainCmd, Sp_Cmd->SubCmd, *Params->GetBytes());
     ProtocolBase pb(Idx, Timestamp, CheckType, Type, DeviceType, Remain, Sp_Cmd->MainCmd, Sp_Cmd->SubCmd, CmdParams, *Params->GetBytes());
 
     return pb.GetBytes();

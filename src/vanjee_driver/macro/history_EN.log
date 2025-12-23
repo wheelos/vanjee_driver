@@ -3,152 +3,260 @@ version 1.0.0   2023-04-13
 
 version 1.1.0   2023-06-12
   1.Add the function of obtaining device information;
-  2.Add new device of WLR-721, WLR-733;
+  2.Add new device of WLR-721, WLR-733.
 
 version 1.1.1   2023-08-02
-  1.Add new device of WLR-720;
+  1.Add new device of WLR-720.
 
 version 1.2.1   2023-11-17
-  1.Add new device of WLR-719;
+  1.Add new device of WLR-719.
 
 version 1.3.1   2023-11-28
-  1.Add new device of WLR-740;
+  1.Add new device of WLR-740.
   
 version 1.4.1   2023-12-13
-  1.Add new device of WLR-719C;
+  1.Add new device of WLR-719C.
 
 version 1.4.2   2023-12-26
   1.Delete framing mode configuration item;
-  2.Modify the element (intensity) definition type in the point cloud structure,uint8 to float;
+  2.Modify the element (intensity) definition type in the point cloud structure,uint8 to float.
 
 version 1.5.1   2024-01-12
-  1.Add new device of WLR-750;
+  1.Add new device of WLR-750.
 
 version 1.6.1   2024-01-15
-  1.Add new device of WLR-718h;
+  1.Add new device of WLR-718H.
 
 version 1.6.2   2024-02-02
-  1.Resolve 718h packet loss issue; 
+  1.Resolve WLR-718H packet loss issue.
 
 version 1.7.1   2024-02-19
-  1.Add new device of WLR-716mini;
+  1.Add new device of WLR-716mini.
 
 version 1.7.2   2024-02-28
-  1.Added WLR-740 IMU algorithm point cloud analysis; 
+  1.Added WLR-740 IMU algorithm point cloud analysis.
 
 version 1.8.1   2024-03-13
-  1.Add new device of WLR-720_32; 
+  1.Add new device of WLR-720_32.
 
 version 1.8.2   2024-03-26
-  1.Variable naming conventions;
+  1.Variable naming conventions.
 
 version 1.8.4   2024-03-27
-  1.When not using lidar time, directly use server time as point cloud time; 
+  1.When not using lidar time, directly use server time as point cloud time.
 
 version 1.8.5   2024-04-02
-  1.Add socket re creation function;
+  1.Add socket re creation function.
 
 version 1.8.6   2024-04-08
-  1.Optimize IMU algorithm, synchronize IMU coordinate system with point cloud coordinate system;
+  1.Optimize IMU algorithm, synchronize IMU coordinate system with point cloud coordinate system.
 
 version 1.8.7   2024-04-08
-  1.Algorithm strategy for updating lidar time compensation values;
+  1.Algorithm strategy for updating lidar time compensation values.
 
 version 1.8.10   2024-04-24
   1.Added WLR-716mini 0.125 ° resolution point cloud analysis;
-  2.Optimize lidar resolution acquisition strategy;
+  2.Optimize lidar resolution acquisition strategy.
 
 version 1.9.1   2024-05-06
-  1.Add new device of WLR-740B; 
+  1.Add new device of WLR-740B.
 
 version 1.9.2   2024-05-27
-  1.Add new device of WLR-740 type B; 
+  1.Add new device of WLR-740 type B.
 
 version 1.9.3   2024-05-28
-  1.Update WLR-750B protocol analysis
+  1.Update WLR-750B protocol analysis.
 
 version 1.10.1   2024-05-30
-  1.Add new device of WLR-760; 
+  1.Add new device of WLR-760.
 
 version 1.10.2   2024-06-19
-  1.Real time transmission of point cloud data;
+  1.Real time transmission of point cloud data.
 
 version 1.10.3   2024-07-08
   1.Added WLR-716mini 0.1 ° and 0.05 ° resolution point cloud analysis;
-  2.Packet loss handling
+  2.Packet loss handling.
 
 version 1.10.5   2024-07-23
-  1.Add an English version of the explanatory document
+  1.Add an English version of the explanatory document.
 
 version 2.0.2   2024-08-22
-  1.Implement a universal version protocol parsing template, WLR-750B uses this protocol template for parsing
-  2.Update demo use case
+  1.Implement a universal version protocol parsing template, WLR-750B uses this protocol template for parsing;
+  2.Update demo use case.
 
 version 2.0.3   2024-08-22
-  1.Update WLR-760 protocol analysis,WLR-760 uses universal version protocol template for parsing
+  1.Update WLR-760 protocol analysis,WLR-760 uses universal version protocol template for parsing.
 
 version 2.0.4   2024-08-23
-  1.Add driver compilation to dynamic library method
-  2.Update WLR-718x protocol analysis(14Hz)
+  1.Add driver compilation to dynamic library method;
+  2.Update WLR-718X protocol analysis(14Hz).
 
 version 2.0.5   2024-09-02
-  1.Added point cloud masking function, which is used by the wlr-720 series lidar
-  2.All lidars use the same point cloud coordinate system
-  3.Optimize IMU algorithm, improve the accuracy of temperature compensation algorithm
-  4.Add point cloud output logic, when IMU is enabled, point cloud output needs to wait for IMU calibration to be completed
-  5.Compatibility with wlr-718x point cloud intensity value not enabled
+  1.Added point cloud masking function, which is used by the WLR-720 series lidar;
+  2.All lidars use the same point cloud coordinate system;
+  3.Optimize IMU algorithm, improve the accuracy of temperature compensation algorithm;
+  4.Add point cloud output logic, when IMU is enabled, point cloud output needs to wait for IMU calibration to be completed;
+  5.Compatibility with WLR-718X point cloud intensity value not enabled.
 
 version 2.0.6   2024-09-03
-  1.Resolve the bug of assigning function parameters and IMU parameter structure to the universal version protocol, and store the checksum using "uint16_t"
-  2.Synchronization wlr-760 protocol analysis, update the time difference between the first and last points in the same circle to 74ms
-  3.Added WLR-722 protocol parsing and IMU parsing
-  4.The IMU coordinate system is consistent with the lidar (the wire direction is X-)
+  1.Resolve the bug of assigning function parameters and IMU parameter structure to the universal version protocol, and store the checksum using "uint16_t";
+  2.Synchronization WLR-760 protocol analysis, update the time difference between the first and last points in the same circle to 74ms;
+  3.Added WLR-722 protocol parsing and IMU parsing;
+  4.The IMU coordinate system is consistent with the lidar (the wire direction is X-).
 
 version 2.0.7   2024-09-06
-  1.Update wlr-719c point cloud analysis
-  2.Update the timestamp calculation logic for wlr-719 and wlr-719c
-  3.Added frame loss processing logic for wlr-719 and wlr-719c
+  1.Update WLR-719c point cloud analysis;
+  2.Update the timestamp calculation logic for WLR-719 and WLR-719c;
+  3.Added frame loss processing logic for WLR-719 and WLR-719c.
 
 version 2.0.10   2024-09-30
-  1.Update the timestamp calculation logic for wlr-750B
-  2.Code style formatting
-  3.Standardized IMU coordinate system and add calibration status restrictions
-  4.Added WLR-722 eccentricity parameter protocol parsing
-  5.Update WLR-760 protocol analysis
-  6.Optimization of TCP reconnection mechanism
-  7.WLR-720_16 point cloud masking function optimization
-  8.Update heartbeat command sending method of WLR-719 and WLR-719c
-  9.Modify the strategy of WLR-716mini to obtain point cloud data instructions, so that point cloud data can be directly obtained after lidar restart
-  10.Modify the strategy of WLR-718h to obtain point cloud data instructions, so that point cloud data can be directly obtained after lidar restart
+  1.Update the timestamp calculation logic for WLR-750B;
+  2.Code style formatting;
+  3.Standardized IMU coordinate system and add calibration status restrictions;
+  4.Added WLR-722 eccentricity parameter protocol parsing;
+  5.Update WLR-760 protocol analysis;
+  6.Optimization of TCP reconnection mechanism;
+  7.WLR-720_16 point cloud masking function optimization;
+  8.Update heartbeat command sending method of WLR-719 and WLR-719c;
+  9.Modify the strategy of WLR-716mini to obtain point cloud data instructions, so that point cloud data can be directly obtained after lidar restart;
+  10.Modify the strategy of WLR-718H to obtain point cloud data instructions, so that point cloud data can be directly obtained after lidar restart.
 
 version 2.0.11   2024-10-15
-  1.Resolve the compilation error bug in vanjee_driverv2.0.7 and later versions of ROS2
-  2.Update WLR-760 protocol analysis,compatible with 140° field of view and dual-echo mode
-  3.Update WLR-733 point cloud analysis, default rotation direction is anticlockwise
-  4.Calculation of lidar channel angle offset is associated with rotation direction
-  5.Resolve the bug of WLR-721 point cloud angle resolution calculation error
+  1.Resolve the compilation error bug in vanjee_driverv2.0.7 and later versions of ROS2;
+  2.Update WLR-760 protocol analysis,compatible with 140° field of view and dual-echo mode;
+  3.Update WLR-733 point cloud analysis, default rotation direction is anticlockwise;
+  4.Calculation of lidar channel angle offset is associated with rotation direction;
+  5.Resolve the bug of WLR-721 point cloud angle resolution calculation error.
 
 version 2.0.12   2024-11-18
-  1.Delete the 'static' keyword in device protocol parsing to avoid parameter calculation errors 
-    when multiple lidars of the same model and different working modes are connected simultaneously
-  2.722 subcontracting angle is the current angle to avoid subcontracting within the circle
+  1.Delete the 'static' keyword in device protocol parsing to avoid parameter calculation errors ;
+    when multiple lidars of the same model and different working modes are connected simultaneously;
+  2.WLR-722 subcontracting angle is the current angle to avoid subcontracting within the circle.
 
 version 2.0.13   2024-11-26
-  1.Compatible with WLR-722 IMU data release frequency of 200Hz
-  2.Resolve the bug of abnormal eccentricity parameter acquisition for WLR-722 in vanjee_driverv2.0.7
+  1.Compatible with WLR-722 IMU data release frequency of 200Hz;
+  2.Resolve the bug of abnormal eccentricity parameter acquisition for WLR-722 in vanjee_driverv2.0.7.
 
 version 2.0.14   2024-12-03
-  1.Add device interaction interface and topic interaction to achieve WLR-722 device status setting interaction
-  2.Compatible with WLR-716mini distance reflectivity alternating protocol
-  3.Compatible with WLR-722 0.3 ° angle resolution analysis
-  4.subscribe and publish ros topics through the same node in ROS2
-  5.Added fault reporting function, supporting lidar type WLR-716mini WLR-718h WLR-719
-  6.Rename angle configuration file 
-  7.Modifies the node definition method in ROS2 environment, with each topic published on one node
+  1.Add device interaction interface and topic interaction to achieve WLR-722 device status setting interaction;
+  2.Compatible with WLR-716mini distance reflectivity alternating protocol;
+  3.Compatible with WLR-722 0.3 ° angle resolution analysis;
+  4.subscribe and publish ros topics through the same node in ROS2;
+  5.Added fault reporting function, supporting lidar type WLR-716mini WLR-718H WLR-719;
+  6.Rename angle configuration file;
+  7.Modifies the node definition method in ROS2 environment, with each topic published on one node.
 
 version 2.0.15   2025-01-15
-  1.Added WLR-722 universal version protocol parsing
-  2.Added WLR-722 IMU packet parsing
-  3.Add ros topic task switch
-  4.Add new configuration item: Switching between relative timestamp and item absolute timestamp
-  5.Compatible with WLR-750E point cloud analysis
+  1.Added WLR-722 universal version protocol parsing;
+  2.Added WLR-722 IMU packet parsing;
+  3.Add ros topic task switch;
+  4.Add new configuration item: Switching between relative timestamp and item absolute timestamp;
+  5.Compatible with WLR-750E point cloud analysis.
+
+version 2.0.16   2025-02-08
+  1.Update WLR-750E point cloud analysis (sliding angle table);
+  2.Update WLR-733 protocol analysis to compatible packet loss handling.
+
+version 2.0.17   2025-02-10
+  1.Added WLR-720H protocol parsing.
+
+version 2.1.1   2025-02-10
+  1.Added WLR-719E protocol parsing;
+  2.Vanjee driver lib and demo updates.
+
+version 2.1.2   2025-02-27
+  1.Added WLR-722 fixed channel lighting setting;
+  2.Compatible with WLR-733 clockwise scanning point cloud analysis.
+
+version 2.1.3   2025-04-01
+  1.Update WLR-760 protocol analysis, synchronous angle table;
+  2.Resolve the issue of not being able to read "difop" data when inputting offline data packets (pcap);
+  3.Solved the problem of partial point cloud masking caused by negative azimuth angle of WLR-722.
+
+version 2.1.4   2025-04-09
+  1.Optimize WLR-719E point cloud timestamp calculation;
+  2.Resolve the issue of some devices being unable to find custom message header files during compilation.
+
+version 2.1.5   2025-04-11
+  1.Added WLR-722Z protocol parsing;
+  2.Added WLR-722F protocol parsing;
+  3.Added XYZIRTT point cloud data format.
+
+version 2.1.6   2025-05-30
+  1.Optimize WLR-722Z to achieve serial port acquisition of lidar params;
+  2.Resolve the issue of abnormal exit of WLR-722 after power failure and restart of the driver.
+
+version 2.1.7   2025-06-05
+  1.Added lidar raw data protocol packet topic publish and subscribe;
+  2.Change the serial port mode setting entry, such as changing the configuration file;
+    from "msg_source" to "connect_type" configuration item for configuration;
+  3.Added fault reporting function (WLR-720_16, WLR-720_32, WLR-722);
+  4.Compatible with WLR-722 protocol (lidar timestamp update).
+
+version 2.1.8   2025-06-18
+  1.Resolve the issue of high CPU usage when connecting devices via serial port.
+
+version 2.1.9   2025-07-03
+  1.Update the serial port blocking method;
+  2.Resolve the issue of memory leakage when blocking point cloud publishing;
+  3.WLR-722F and WLR-722Z IMU unlinked from configuration file yaw angle;
+  4.Compatible with WLR-716mini protocol(HK);
+  5.Add IMU data rotation parameter configuration item;
+  6.WLR-722Z added temperature reporting topic.
+
+version 2.1.10   2025-07-08
+  1.Added light emission angle compensation (WLR-720_16, WLR-720_32, WLR-721, WLR-722);
+  2.Added eccentricity parameter application (WLR-720_16, WLR-720_32);
+  3.Update imu zero calibration strategy;
+  4.Compatible with WLR-722F point cloud analysis (0.15°/5hz);
+  5.Compatible with WLR-722Z point cloud analysis (1.2°/5hz).
+
+version 2.2.1   2025-07-15
+  1.Added WLR-722H protocol parsing.
+
+version 2.2.2   2025-07-24
+  1.Record lidar parameter protocol when using raw packet topic;
+  2.It can be configured to create a socket on a fixed network interface.
+    If not configured, it will default to creating a socket on the corresponding network interface based on the IP address.
+
+version 2.2.3   2025-08-01
+  1.Added WLR-760 v1.132 protocol parsing;
+  2.Added WLR-760 v1.1 protocol parsing.
+
+version 2.2.4   2025-08-07
+  1.When the WLR-716mini device state topic is not enabled, uploading fault codes via lidar can lead to memory overflow issues,
+    this issue exists in the code integration method of version v2.1.9 and later versions.
+
+version 2.2.5   2025-08-21
+  1.Added trailing filter algorithm of WLR-719, and its activation can be toggled via the configuration file;
+  2.A time zone compensation is added when converting a date to a timestamp, and the output timestamp is original lidar time;
+  3.Fixed the issue where the driver releases abnormal point clouds when WLR-722F is just powered on.
+
+version 2.2.6   2025-09-16
+  1.Added WLR-762 and implemented the handshake/heartbeat feature;
+  2.Optimized the TCP reconnection strategy to resolve the issue where the driver exits abnormally due to network reconnection on some devices;
+  3.Updated the temperature reporting method for WLR-722F and WLR-722H to fixed-frequency reporting;
+  4.Added WLR-722F point cloud analysis (V3 protocol version);
+  5.Added WLR-722Z fault code analysis and topic publish;
+  6.Added WLR-750C protocol parsing;
+  7.Added WLR-750E IMU packet parsing and Update the angle table file;
+  8.Solved the problem of abnormal point cloud data when using the PCL format and the point cloud topic is published in column publishing mode;
+  9.Updated the light-emitting moment compensation for WLR-720_16 and WLR-720_32 lidar.
+
+version 2.2.7   2025-10-28
+  1.Added parameter query/set custom topic;
+  2.The resolution judgment strategy of the WLR-722Z has been optimized to avoid the misclassification of point clouds in the same circle.
+
+version 2.2.8   2025-11-07
+  1.Added the WLR-722Z IMU acceleration range query and setting functions;
+  2.Added a new point cloud element of "tag" for WLR-722Z;
+  3.Added WLR-722H point cloud analysis (V3 protocol version);
+  4.Added WLR-722H point cloud analysis (0.3°/10hz);
+  5.Updated the optical center compensation of WLR-722;
+  6.Add time information to logs.
+
+version 2.2.9   2025-12-19
+  1.Updated the optical center compensation of WLR-720 and WLR-720_32;
+  2.Added the function of lidar status judgment, including reporting fault topics when lidar data reception is abnormal and lidar data content is abnormal; supported lidar models: WLR-716mini, WLR-718, and WLR-719;
+  3.Added support for firmware version query of WLR-716Mini and WLR-718H.
+  

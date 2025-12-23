@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -44,11 +44,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <thread>
 #include <vector>
 
+#include <vanjee_driver/driver/driver_param.hpp>
+#include <vanjee_driver/utility/json_parse.hpp>
 #include <vanjee_driver/utility/sync_queue.hpp>
 
 #include "protocol_base.hpp"
 #include "vanjee_driver/common/super_header.hpp"
 #include "vanjee_driver/msg/device_ctrl_msg.hpp"
+#include "vanjee_driver/msg/lidar_parameter_interface_msg.hpp"
 
 namespace vanjee {
 namespace lidar {
@@ -77,10 +80,11 @@ class GetDifoCtrlClass {
   std::vector<uint8> byteStream_protocol_pkt;
   bool stopFlag_send_protocol_pkt;
   uint32 interval_send_protocol_pkt;
+  uint32_t send_cnt_;
 
  public:
   GetDifoCtrlClass(std::vector<uint8> &pkt, bool stopFlag = false, uint32 interval = 1000)
-      : byteStream_protocol_pkt(pkt), stopFlag_send_protocol_pkt(stopFlag), interval_send_protocol_pkt(interval) {
+      : byteStream_protocol_pkt(pkt), stopFlag_send_protocol_pkt(stopFlag), interval_send_protocol_pkt(interval), send_cnt_(0) {
   }
 
   GetDifoCtrlClass() {
@@ -98,8 +102,20 @@ class GetDifoCtrlClass {
     return interval_send_protocol_pkt;
   }
 
+  void setSendInterval(uint32 interval) {
+    interval_send_protocol_pkt = interval;
+  }
+
   std::vector<uint8> getSendBuf() {
     return byteStream_protocol_pkt;
+  }
+
+  void setSendCnt(uint32 cnt) {
+    send_cnt_ = cnt;
+  }
+
+  uint32 getSendCnt() {
+    return send_cnt_;
   }
 };
 
@@ -111,20 +127,22 @@ class DifopBase {
 
   DifopBase();
   bool init();
-  bool start(uint16_t dataParsingType);
+  bool start();
   bool stop();
   void udpSendData();
-  void loopParsingProcess();
-  void singleParsingProcess();
+  virtual void loopParsingProcess();
+  virtual void singleParsingProcess();
   bool processDifoPktFlag();
   void setOrgProtocolBase(ProtocolBase &protocolBase);
   void dataEnqueue(std::string ip, std::shared_ptr<std::vector<uint8>> buf);
   bool regCallback(udpSendCallback udpsend, frameCallback frameCb);
 
+  void paramInit(WJDriverParam driver_param);
   virtual void initGetDifoCtrlDataMapPtr() = 0;
   virtual void addItem2GetDifoCtrlDataMapPtr(const DeviceCtrl &device_ctrl){};
+  virtual void addItem2GetDifoCtrlDataMapPtr(const LidarParameterInterface &lidar_param){};
 
- private:
+ protected:
   SyncQueue<std::shared_ptr<BufInfo>> BufInfo_Queue_;
   std::map<std::string, std::shared_ptr<std::vector<uint8>>> BufVectorCaches;
   ProtocolBase OrgProtocol;
@@ -136,8 +154,10 @@ class DifopBase {
   bool process_difoPkt_flag_;
   std::thread send_thread_;
   std::thread handle_thread_;
+  WJDriverParam param_;
 
  public:
+  std::mutex mtx;
   std::shared_ptr<std::map<uint16, GetDifoCtrlClass>> getDifoCtrlData_map_ptr_;
 };
 
@@ -154,14 +174,19 @@ bool DifopBase::init() {
   return true;
 }
 
-bool DifopBase::start(uint16_t dataParsingType) {
+void DifopBase::paramInit(WJDriverParam driver_param) {
+  param_ = driver_param;
+}
+
+bool DifopBase::start() {
   if (start_flag_) {
     return false;
   }
 
   to_exit_recv_ = false;
-  send_thread_ = std::thread(std::bind(&DifopBase::udpSendData, this));
-  if (dataParsingType == 2)
+  if (param_.input_type == InputType::ONLINE_LIDAR)
+    send_thread_ = std::thread(std::bind(&DifopBase::udpSendData, this));
+  if (param_.input_param.connect_type == 2 || param_.input_param.connect_type == 3)
     handle_thread_ = std::thread(std::bind(&DifopBase::loopParsingProcess, this));
   else
     handle_thread_ = std::thread(std::bind(&DifopBase::singleParsingProcess, this));
@@ -199,14 +224,17 @@ void DifopBase::udpSendData() {
   uint64 duration = 0;
   uint8 getDifo_cnt = 0;
   while (!to_exit_recv_) {
-    duration += 1000;
+    duration += 50;
+    mtx.lock();
     if (getDifoCtrlData_map_ptr_) {
-      for (const auto &iter : *getDifoCtrlData_map_ptr_) {
+      for (/*const*/ auto &iter : *getDifoCtrlData_map_ptr_) {
         GetDifoCtrlClass GetDifoCtrlData = iter.second;
 
         if (!GetDifoCtrlData.getStopFlag()) {
           if (duration % GetDifoCtrlData.getSendInterval() == 0) {
             udpSend_(GetDifoCtrlData.getSendBuf().data(), GetDifoCtrlData.getSendBuf().size());
+            (iter.second).setSendCnt(GetDifoCtrlData.getSendCnt() + 1);
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
           }
           getDifo_cnt++;
         }
@@ -219,8 +247,8 @@ void DifopBase::udpSendData() {
       }
       getDifo_cnt = 0;
     }
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    mtx.unlock();
+    std::this_thread::sleep_for(std::chrono::milliseconds(53));
   }
 }
 
@@ -261,8 +289,13 @@ void DifopBase::loopParsingProcess() {
     uint32 indexLast = 0;
     std::shared_ptr<std::vector<std::vector<uint8>>> frames = std::make_shared<std::vector<std::vector<uint8>>>();
     for (uint32 i = 0; i < data.size(); i++) {
-      if (data.size() - i < ProtocolBase::FRAME_MIN_LENGTH)
-        break;
+      if (param_.lidar_type == LidarType::vanjee_722f || param_.lidar_type == LidarType::vanjee_722h || param_.lidar_type == LidarType::vanjee_722z) {
+        if (data.size() - i < ProtocolBase::FRAME_MIN_LENGTH_V1)
+          break;
+      } else {
+        if (data.size() - i < ProtocolBase::FRAME_MIN_LENGTH)
+          break;
+      }
 
       if (!(data[i] == 0xFF && data[i + 1] == 0xAA)) {
         indexLast = i + 1;
@@ -270,7 +303,7 @@ void DifopBase::loopParsingProcess() {
       }
 
       uint32 frameLen = 0;
-      if (ProtocolBase::ByteOrder == 1)
+      if (OrgProtocol.GetByteOrder() == ProtocolBase::DataEndiannessMode::big_endian)
         frameLen = (data[i + 2] << 8) + data[i + 3] + 4;
       else
         frameLen = data[i + 2] + (data[i + 3] << 8) + 4;
@@ -284,11 +317,6 @@ void DifopBase::loopParsingProcess() {
       }
 
       std::vector<uint8> tmp(data.begin() + i, data.begin() + i + frameLen);
-
-      // for(int j = 0; j < tmp.size(); j++)
-      //   std::cout << std::hex << (int)tmp[j] << " ";
-      // std::cout << std::endl;
-
       frames->emplace_back(tmp);
       i += frameLen - 1;
       indexLast = i + 1;
@@ -315,14 +343,18 @@ void DifopBase::singleParsingProcess() {
       continue;
     std::vector<uint8> &data = *(bufInfo->Buf);
 
-    if (data.size() < ProtocolBase::FRAME_MIN_LENGTH)
-      continue;
-
+    if (param_.lidar_type == LidarType::vanjee_722f || param_.lidar_type == LidarType::vanjee_722h || param_.lidar_type == LidarType::vanjee_722z) {
+      if (data.size() < ProtocolBase::FRAME_MIN_LENGTH_V1)
+        continue;
+    } else {
+      if (data.size() < ProtocolBase::FRAME_MIN_LENGTH)
+        continue;
+    }
     if (!(data[0] == 0xFF && data[1] == 0xAA))
       continue;
 
     uint32 frameLen = 0;
-    if (ProtocolBase::ByteOrder == 1)
+    if (OrgProtocol.GetByteOrder() == ProtocolBase::DataEndiannessMode::big_endian)
       frameLen = (data[2] << 8) + data[3] + 4;
     else
       frameLen = data[2] + (data[3] << 8) + 4;
@@ -332,10 +364,6 @@ void DifopBase::singleParsingProcess() {
 
     if (!(data[frameLen - 2] == 0xEE && data[frameLen - 1] == 0xEE))
       continue;
-
-    // for(int j = 0; j < data.size(); j++)
-    //   std::cout << std::hex << (int)data[j] << " ";
-    // std::cout << std::endl;
 
     auto protocol = OrgProtocol.CreateNew();
     if (protocol->Parse(data)) {

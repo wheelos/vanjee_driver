@@ -13,10 +13,14 @@
 - vanjee_718h
 - vanjee_719
 - vanjee_719c
+- vanjee_719e
 - vanjee_720 / vanjee_720_16
 - vanjee_720_32
 - vanjee_721
 - vanjee_722
+- vanjee_722f
+- vanjee_722h
+- vanjee_722z
 - vanjee_733
 - vanjee_750
 - vanjee_760
@@ -24,7 +28,7 @@
 ## 3 支持的操作系统
 
 支持的操作系统及编译器如下。注意编译器需支持C++14标准。
-- Ubuntu (16.04, 18.04, 20.04)
+- Ubuntu (16.04, 18.04, 20.04, 22.04, 24.04)
   - gcc (4.8+)
 
 - Windows
@@ -123,6 +127,12 @@ Windows下，**vanjee_driver** 暂不支持安装。
 
 **在执行以下步骤编译demo之前，请先确保已经按步骤5正确完成SDK编译和安装**
 
+**如果编译或运行报错提示，无法找到 "libVanJeeLaser760Filter_linux.so" 需要做如下操作**
+```sh
+sudo cp <PROJECT_PATH>/src/vanjee_lidar_sdk/src/vanjee_driver/libVanJeeLaser760Filter_linux.so /usr/local/lib
+sudo ldconfig
+```
+
 请按照以下方式之一完成demo编译
 
 ```bash
@@ -150,6 +160,12 @@ make -j4
 
 **在执行以下步骤编译demo之前，请先确保已经按步骤5正确完成SDK编译和安装**
 
+**如果编译或运行报错提示，无法找到 "libVanJeeLaser760Filter_linux.so" 需要做如下操作**
+```sh
+sudo cp <PROJECT_PATH>/src/vanjee_lidar_sdk/src/vanjee_driver/libVanJeeLaser760Filter_linux.so /usr/local/lib
+sudo ldconfig
+```
+
 请按照以下方式之一完成tool编译
 
 ```bash
@@ -176,6 +192,12 @@ make -j4
 **编译成动态库和动态库调用demo使用的点云存储数据类型须保持一致(宏定义 `ENABLE_PCL_POINTCLOUD` 须保持一致)**
 
 ## 9.1 编译和安装
+
+**如果编译或运行报错提示，无法找到 "libVanJeeLaser760Filter_linux.so" 需要做如下操作**
+```sh
+sudo cp <PROJECT_PATH>/src/vanjee_lidar_sdk/src/vanjee_driver/libVanJeeLaser760Filter_linux.so /usr/local/lib
+sudo ldconfig
+```
 
 请按照以下方式之一完成动态库编译。
 
@@ -234,4 +256,3 @@ make -j4
 - 接口定义: ```vanjee_driver/src/vanjee_driver/api/lidar_driver.hpp```
 - 参数定义: ```vanjee_driver/src/vanjee_driver/driver/driver_param.hpp```
 - 错误码定义: ```vanjee_driver/src/vanjee_driver/common/error_code.hpp```
-

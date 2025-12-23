@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -142,6 +142,7 @@ typedef struct _PointInfo {
   uint8_t confidence_;
   uint16_t ring_;
   double timestamp_;
+  uint8_t tag_;
   uint32_t id_;
 } PointInfo;
 
@@ -158,11 +159,12 @@ typedef struct _DataBlockAngleAndTimestampInfo {
   uint8_t data_block_index_in_packet_;
   DataBlockInfo data_block_info_;
   uint8_t reserved_field_1_[8];
+  uint8_t reserved_field_2_[16];
   std::vector<PointInfo> point_info_vector_;
 
   void init(uint16_t protocol_version, double pkt_ts, uint16_t circle_id, uint16_t total_pkt_num, uint16_t packet_id, uint16_t operate_frequency,
             uint8_t echo_num, uint16_t col_channel_num, uint16_t row_channel_num, uint8_t data_block_index_in_packet, DataBlockInfo& data_block_info,
-            uint8_t* reserved_field_1) {
+            uint8_t* reserved_field_1, uint8_t* reserved_field_2) {
     protocol_version_ = protocol_version;
     first_point_ts_ = pkt_ts;
     circle_id_ = circle_id;
@@ -175,6 +177,7 @@ typedef struct _DataBlockAngleAndTimestampInfo {
     data_block_index_in_packet_ = data_block_index_in_packet;
     memcpy((void*)&data_block_info_, (void*)&data_block_info, sizeof(DataBlockInfo));
     memcpy(reserved_field_1_, reserved_field_1, sizeof(reserved_field_1_));
+    memcpy(reserved_field_2_, reserved_field_2, sizeof(reserved_field_2_));
 
     point_info_vector_.resize(0);
   }
@@ -188,27 +191,34 @@ class DecoderPacketGeneralVersionBase {
   std::vector<double> all_points_luminous_moment_;
   uint32_t pre_circle_id_;
   double pre_imu_timestamp_;
-  uint8_t fault_detection_module_counter_;
+  int16_t fault_detection_module_counter_ = -1;
+
   double first_point_ts_ = 0.0;
 
  public:
   DecoderPacketGeneralVersionBase(Decoder<T_PointCloud>* decoder_ptr) {
-    imu_params_get_ = std::make_shared<ImuParamGet>();
+    // imu_params_get_ = std::make_shared<ImuParamGet>();
+    imu_params_get_ = decoder_ptr->m_imu_params_get_;
     decoder_ptr_ = decoder_ptr;
+    if (decoder_ptr_->param_.imu_enable == -1 || decoder_ptr_->param_.imu_enable == 0) {
+      decoder_ptr_->point_cloud_ready_ = true;
+    } else {
+      WJ_INFO << "Waiting for IMU calibration..." << WJ_REND;
+    }
   }
 
   virtual bool decoderPacket(const uint8_t* buf, size_t size,
                              std::function<void(DataBlockAngleAndTimestampInfo&, T_DataBlock*)> update_angle_and_timestamp_info_callback,
                              std::function<void(T_DataUnit*, PointInfo&)> decoder_data_unit_callback,
-                             std::function<void()> point_cloud_algorithm_callbck) {
-    VanjeeLidarPointCloudPacketBaseHeader& vanjee_lidar_point_cloud_packet_base_header = *(VanjeeLidarPointCloudPacketBaseHeader*)buf;
+                             std::function<void()> point_cloud_algorithm_callback) {
+    // VanjeeLidarPointCloudPacketBaseHeader& vanjee_lidar_point_cloud_packet_base_header = *(VanjeeLidarPointCloudPacketBaseHeader*)buf;
     return decoderPointCloudPacketProtocolVersionV1_0(buf, size, update_angle_and_timestamp_info_callback, decoder_data_unit_callback,
-                                                      point_cloud_algorithm_callbck);
+                                                      point_cloud_algorithm_callback);
   }
 
   bool decoderPointCloudPacketProtocolVersionV1_0(
       const uint8_t* buf, uint16_t size, std::function<void(DataBlockAngleAndTimestampInfo&, T_DataBlock*)> update_angle_and_timestamp_info_callback,
-      std::function<void(T_DataUnit*, PointInfo&)> decoder_data_unit_callback, std::function<void()> point_cloud_algorithm_callbck) {
+      std::function<void(T_DataUnit*, PointInfo&)> decoder_data_unit_callback, std::function<void()> point_cloud_algorithm_callback) {
     bool ret = false;
     uint16_t offset = 0;
     VanjeeLidarPointCloudPacketHeaderV1_0& vanjee_lidar_point_cloud_packet_header = *((VanjeeLidarPointCloudPacketHeaderV1_0*)(buf + offset));
@@ -223,13 +233,23 @@ class DecoderPacketGeneralVersionBase {
     if (!decoder_ptr_->param_.use_lidar_clock) {
       pkt_ts = host_pkt_ts;
     } else {
-      pkt_ts = lidar_pkt_ts;
+      pkt_ts = lidar_pkt_ts < 0 ? 0 : lidar_pkt_ts;
     }
 
-    functionalSafetyDecoder(buf, size, vanjee_lidar_point_cloud_packet_header);
+    if (decoder_ptr_->param_.device_ctrl_state_enable || decoder_ptr_->param_.send_lidar_param_enable) {
+      functionalSafetyDecoder(buf, size, vanjee_lidar_point_cloud_packet_header);
+    }
     if (decoder_ptr_->param_.imu_enable != -1) {
       sendImuData(buf, size, pkt_ts, lidar_pkt_ts, vanjee_lidar_point_cloud_packet_header);
+      if (!decoder_ptr_->imu_ready_ && !decoder_ptr_->point_cloud_ready_) {
+        return false;
+      } else if (!decoder_ptr_->point_cloud_ready_) {
+        decoder_ptr_->point_cloud_ready_ = true;
+      }
     }
+
+    if (!decoder_ptr_->param_.point_cloud_enable && !decoder_ptr_->param_.laser_scan_enable)
+      return false;
 
     uint32_t loss_circles_num = (vanjee_lidar_point_cloud_packet_header.circle_id_ + 0x10000 - pre_circle_id_) % 0x10000;
     pre_circle_id_ = vanjee_lidar_point_cloud_packet_header.circle_id_;
@@ -239,11 +259,23 @@ class DecoderPacketGeneralVersionBase {
     if ((loss_circles_num == 1 && decoder_ptr_->point_cloud_->points.size() != 0)) {
       decoder_ptr_->first_point_ts_ = first_point_ts_;
       decoder_ptr_->last_point_ts_ = decoder_ptr_->first_point_ts_ + all_points_luminous_moment_[all_points_luminous_moment_.size() - 1];
-      if (point_cloud_algorithm_callbck != nullptr)
-        point_cloud_algorithm_callbck();
-      transformPointCloud();
-      decoder_ptr_->cb_split_frame_(vanjee_lidar_point_cloud_packet_header.row_channel_num_, decoder_ptr_->cloudTs());
-      ret = true;
+      if (decoder_ptr_->param_.point_cloud_enable) {
+        if (point_cloud_algorithm_callback != nullptr)
+          point_cloud_algorithm_callback();
+        transformPointCloud();
+        if (vanjee_lidar_point_cloud_packet_header.data_block_info_.data_block_packet_type_ == 1 ||
+            vanjee_lidar_point_cloud_packet_header.data_block_info_.data_block_packet_type_ == 3) {
+          decoder_ptr_->cb_split_frame_(vanjee_lidar_point_cloud_packet_header.row_channel_num_, decoder_ptr_->cloudTs());
+        } else {
+          decoder_ptr_->cb_split_frame_(vanjee_lidar_point_cloud_packet_header.col_channel_num_, decoder_ptr_->cloudTs());
+        }
+        ret = true;
+      }
+
+      if (decoder_ptr_->param_.laser_scan_enable) {
+        decoder_ptr_->scan_data_->ranges.clear();
+        decoder_ptr_->scan_data_->intensities.clear();
+      }
     }
 
     offset += sizeof(VanjeeLidarPointCloudPacketHeaderV1_0);
@@ -259,10 +291,10 @@ class DecoderPacketGeneralVersionBase {
           vanjee_lidar_point_cloud_packet_header.pkt_id_, vanjee_lidar_point_cloud_packet_header.operate_frequency_,
           vanjee_lidar_point_cloud_packet_header.echo_num_, vanjee_lidar_point_cloud_packet_header.col_channel_num_,
           vanjee_lidar_point_cloud_packet_header.row_channel_num_, i, vanjee_lidar_point_cloud_packet_header.data_block_info_,
-          vanjee_lidar_point_cloud_packet_header.reserved_field_1_);
+          vanjee_lidar_point_cloud_packet_header.reserved_field_1_, vanjee_lidar_point_cloud_packet_header.reserved_field_2_);
       T_DataBlock* data_block_ptr = (T_DataBlock*)(buf + offset);
       update_angle_and_timestamp_info_callback(data_block_angle_and_timestamp_info, data_block_ptr);
-      decoderDataBlock(data_block_ptr, data_block_angle_and_timestamp_info, decoder_data_unit_callback, point_cloud_algorithm_callbck);
+      decoderDataBlock(data_block_ptr, data_block_angle_and_timestamp_info, decoder_data_unit_callback, point_cloud_algorithm_callback);
 
       offset += sizeof(T_DataBlock);
     }
@@ -271,11 +303,27 @@ class DecoderPacketGeneralVersionBase {
       decoder_ptr_->first_point_ts_ = first_point_ts_;
       decoder_ptr_->last_point_ts_ = decoder_ptr_->first_point_ts_ + all_points_luminous_moment_[all_points_luminous_moment_.size() - 1];
 
-      if (point_cloud_algorithm_callbck != nullptr)
-        point_cloud_algorithm_callbck();
-      transformPointCloud();
-      decoder_ptr_->cb_split_frame_(vanjee_lidar_point_cloud_packet_header.row_channel_num_, decoder_ptr_->cloudTs());
-      ret = true;
+      if (this->decoder_ptr_->param_.point_cloud_enable) {
+        if (point_cloud_algorithm_callback != nullptr)
+          point_cloud_algorithm_callback();
+        transformPointCloud();
+        if (vanjee_lidar_point_cloud_packet_header.data_block_info_.data_block_packet_type_ == 1 ||
+            vanjee_lidar_point_cloud_packet_header.data_block_info_.data_block_packet_type_ == 3) {
+          decoder_ptr_->cb_split_frame_(vanjee_lidar_point_cloud_packet_header.row_channel_num_, decoder_ptr_->cloudTs());
+        } else {
+          decoder_ptr_->cb_split_frame_(vanjee_lidar_point_cloud_packet_header.col_channel_num_, decoder_ptr_->cloudTs());
+        }
+        ret = true;
+      }
+
+      if (this->decoder_ptr_->param_.laser_scan_enable) {
+        if (decoder_ptr_->scan_data_->ranges.size() == vanjee_lidar_point_cloud_packet_header.col_channel_num_) {
+          decoder_ptr_->cb_scan_data_(decoder_ptr_->cloudTs());
+          ret = true;
+        }
+        decoder_ptr_->scan_data_->ranges.clear();
+        decoder_ptr_->scan_data_->intensities.clear();
+      }
     }
 
     return ret;
@@ -283,12 +331,10 @@ class DecoderPacketGeneralVersionBase {
 
   bool protocolCheck(const uint8_t* buf, uint16_t size, VanjeeLidarPointCloudPacketHeaderV1_0& vanjee_lidar_point_cloud_packet_header) {
     bool ret = true;
-    // 0：exclude cyber security info field；1：include cyber security info
-    // field,but data is invalidate; 2:include cyber security info field ,and
-    // data is valid;
-    uint8_t cyber_security_flag = (vanjee_lidar_point_cloud_packet_header.info_flag_ >> 4) & 0x03;
-    // 0：exclude check info field；1：include check info field,but data is
-    // invalidate;2：crc16;3：bcc;
+    // 0：exclude cyber security info field；1：include cyber security info field,but data is invalidate;
+    // 2:include cyber security info field ,and data is valid;
+    // uint8_t cyber_security_flag = (vanjee_lidar_point_cloud_packet_header.info_flag_ >> 4) & 0x03;
+    // 0：exclude check info field；1：include check info field,but data is invalidate;2：crc16;3：bcc;
     uint8_t check_flag = (vanjee_lidar_point_cloud_packet_header.info_flag_ >> 6) & 0x03;
 
     TailInfo& tailInfo = *(TailInfo*)(buf + size - 2);
@@ -314,57 +360,59 @@ class DecoderPacketGeneralVersionBase {
   }
 
   void functionalSafetyDecoder(const uint8_t* buf, uint16_t size, VanjeeLidarPointCloudPacketHeaderV1_0& vanjee_lidar_point_cloud_packet_header) {
-    // 0：exclude functional safety info field；1：include functional safety
-    // info field,but data is invalidate; 2:include functional safety info field
-    // ,and data is valid;
+    // 0：exclude functional safety info field；1：include functional safety info field,but data is invalidate;
+    // 2:include functional safety info field, and data is valid;
     uint8_t function_safety_flag = (vanjee_lidar_point_cloud_packet_header.info_flag_ >> 2) & 0x03;
     if (function_safety_flag == 2) {
-      // 0：exclude cyber security info field；1：include cyber security info
-      // field,but data is invalidate; 2:include cyber security info field ,and
-      // data is valid;
+      // 0：exclude cyber security info field；1：include cyber security info field,but data is invalidate;
+      // 2:include cyber security info field ,and data is valid;
       uint8_t cyber_security_flag = (vanjee_lidar_point_cloud_packet_header.info_flag_ >> 4) & 0x03;
-      // 0：exclude check info field；1：include check info field,but data is
-      // invalidate;2：crc16;3：bcc;
+      // 0：exclude check info field；1：include check info field,but data is invalidate;2：crc16;3：bcc;
       uint8_t check_flag = (vanjee_lidar_point_cloud_packet_header.info_flag_ >> 6) & 0x03;
-      uint16_t offset = sizeof(TailInfo) + 1;
+      uint16_t offset = sizeof(TailInfo);
       if (check_flag != 0)
         offset += sizeof(CheckInfo);
       if (cyber_security_flag != 0)
         offset += sizeof(CyberSecurityInfo);
       offset += sizeof(FunctionSafetyInfo);
+
       FunctionSafetyInfo& functionSafetyInfo = *(FunctionSafetyInfo*)(buf + size - offset);
-      if (fault_detection_module_counter_ != 0 && functionSafetyInfo.fault_detection_module_counter_ == fault_detection_module_counter_) {
+      uint8_t lidar_state = functionSafetyInfo.lidar_running_state_ & 0x0f;
+      uint8_t id = (functionSafetyInfo.lidar_running_state_ >> 4) & 0x0f;
+
+      if (lidar_state != 1 && lidar_state != 2) {
+        return;
+      }
+
+      uint16_t loss_packet_num = (functionSafetyInfo.fault_detection_module_counter_ + 256 - fault_detection_module_counter_) % 256;
+      if (fault_detection_module_counter_ != -1 && loss_packet_num != 1) {
         WJ_ERROR << "Functional safety: fault detection module error" << WJ_REND;
         return;
       }
-      std::string err_code_str = "";
-      for (int i = 0; i < 16; i++) {
-        if (((functionSafetyInfo.error_code_id_ >> i) & 0x01) == 1)
-          err_code_str += " " + std::to_string(i);
-      }
-      if (err_code_str.length() > 1) {
-        WJ_ERROR << "Functional safety: fault code:" << err_code_str << WJ_REND;
+      fault_detection_module_counter_ = functionSafetyInfo.fault_detection_module_counter_;
+
+      if (functionSafetyInfo.error_code_id_ != 0) {
+        decoder_ptr_->deviceStatePublish(id, lidar_state, lidar_state, first_point_ts_);
       }
     }
   }
 
   void sendImuData(const uint8_t* buf, uint16_t size, double timestamp, double lidar_timestamp,
                    VanjeeLidarPointCloudPacketHeaderV1_0& vanjee_lidar_point_cloud_packet_header) {
-    // 0：exclude imu info field ;1: include imu info field,but data is
-    // invalidate;2:include imu info field,and data is valid;
+    if (decoder_ptr_->param_.imu_enable == -1)
+      return;
+    // 0：exclude imu info field ;1: include imu info field,but data is invalidate;
+    // 2:include imu info field,and data is valid;
     uint8_t imu_flag = vanjee_lidar_point_cloud_packet_header.info_flag_ & 0x03;
 
     if (imu_flag == 2) {
-      // 0：exclude functional safety info field；1：include functional safety
-      // info field,but data is invalidate; 2:include functional safety info
-      // field ,and data is valid;
+      // 0：exclude functional safety info field；1：include functional safety info field,but data is invalidate;
+      // 2:include functional safety info field ,and data is valid;
       uint8_t function_safety_flag = (vanjee_lidar_point_cloud_packet_header.info_flag_ >> 2) & 0x03;
-      // 0：exclude cyber security info field；1：include cyber security info
-      // field,but data is invalidate; 2:include cyber security info field ,and
-      // data is valid;
+      // 0：exclude cyber security info field；1：include cyber security info field,but data is invalidate;
+      // 2:include cyber security info field ,and data is valid;
       uint8_t cyber_security_flag = (vanjee_lidar_point_cloud_packet_header.info_flag_ >> 4) & 0x03;
-      // 0：exclude check info field；1：include check info field,but data is
-      // invalidate;2：crc16;3：bcc;
+      // 0：exclude check info field；1：include check info field,but data is invalidate;2：crc16;3：bcc;
       uint8_t check_flag = (vanjee_lidar_point_cloud_packet_header.info_flag_ >> 6) & 0x03;
       uint16_t offset = sizeof(TailInfo);
       if (check_flag != 0)
@@ -376,12 +424,17 @@ class DecoderPacketGeneralVersionBase {
       offset += sizeof(ImuDataInfo);
 
       ImuDataInfo& imuDataInfo = *(ImuDataInfo*)(buf + size - offset);
+      // uint16_t imu_publish_flag = (buf[60] | (buf[61] << 8));
+      // if (imu_publish_flag == 0) {
+      //   return;
+      // }
       double imu_timestamp = lidar_timestamp + (double)imuDataInfo.imu_data_timestamp_ * 1e-9;
       if (abs(imu_timestamp - pre_imu_timestamp_) > 1e-6) {
-        bool ret = imu_params_get_->imuGet(imuDataInfo.imu_angle_voc_x_, imuDataInfo.imu_angle_voc_y_, imuDataInfo.imu_angle_voc_z_,
-                                           imuDataInfo.imu_linear_acce_x_, imuDataInfo.imu_linear_acce_y_, imuDataInfo.imu_linear_acce_z_,
-                                           imu_timestamp, -100.0, false, false, false, false, true);
-        if (ret) {
+        decoder_ptr_->imu_ready_ =
+            imu_params_get_->imuGet(imuDataInfo.imu_angle_voc_x_, imuDataInfo.imu_angle_voc_y_, imuDataInfo.imu_angle_voc_z_,
+                                    imuDataInfo.imu_linear_acce_x_, imuDataInfo.imu_linear_acce_y_, imuDataInfo.imu_linear_acce_z_, imu_timestamp,
+                                    decoder_ptr_->param_.imu_orientation_enable, -100.0, false, false, false, true, true);
+        if (decoder_ptr_->imu_ready_) {
           decoder_ptr_->imu_packet_->timestamp = timestamp + (double)imuDataInfo.imu_data_timestamp_ * 1e-9;
           decoder_ptr_->imu_packet_->angular_voc[0] = imu_params_get_->imu_result_stu_.x_angle;
           decoder_ptr_->imu_packet_->angular_voc[1] = imu_params_get_->imu_result_stu_.y_angle;
@@ -405,7 +458,7 @@ class DecoderPacketGeneralVersionBase {
 
   void decoderDataBlock(T_DataBlock* data_block_ptr, DataBlockAngleAndTimestampInfo& data_block_angle_and_timestamp_info,
                         std::function<void(T_DataUnit*, PointInfo&)> decoder_data_unit_callback,
-                        std::function<void()> point_cloud_algorithm_callbck) {
+                        std::function<void()> point_cloud_algorithm_callback) {
     uint16_t data_unit_num = data_block_angle_and_timestamp_info.data_block_info_.row_channel_num_in_data_block_ *
                              data_block_angle_and_timestamp_info.data_block_info_.col_channel_num_in_data_block_;
     if (data_block_angle_and_timestamp_info.point_info_vector_.size() == 0)
@@ -416,12 +469,13 @@ class DecoderPacketGeneralVersionBase {
 
       typename T_PointCloud::PointT point =
           getPoint(data_block_angle_and_timestamp_info.point_info_vector_[i],
-                   data_block_angle_and_timestamp_info.data_block_info_.distance_resolution_, point_cloud_algorithm_callbck);
-      decoder_ptr_->point_cloud_->points.emplace_back(point);
+                   data_block_angle_and_timestamp_info.data_block_info_.distance_resolution_, point_cloud_algorithm_callback);
+      if (decoder_ptr_->param_.point_cloud_enable)
+        decoder_ptr_->point_cloud_->points.emplace_back(point);
     }
   }
 
-  typename T_PointCloud::PointT getPoint(PointInfo& point_info, uint8_t distance_resolution, std::function<void()> point_cloud_algorithm_callbck) {
+  typename T_PointCloud::PointT getPoint(PointInfo& point_info, uint8_t distance_resolution, std::function<void()> point_cloud_algorithm_callback) {
     typename T_PointCloud::PointT point;
     double distance = point_info.distance_ * distance_resolution * 1e-3;
     uint32_t azimuth = (uint32_t)(point_info.azimuth_ * 1e3 + 360000) % 360000;
@@ -429,13 +483,13 @@ class DecoderPacketGeneralVersionBase {
     uint8_t reflectivity = point_info.reflectivity_;
     uint16_t ring = point_info.ring_;
     double timestamp = point_info.timestamp_;
+    uint8_t tag = point_info.tag_;
 
-    if (point_cloud_algorithm_callbck == nullptr) {
-      if (decoder_ptr_->param_.start_angle < decoder_ptr_->param_.end_angle &&
-          (azimuth < decoder_ptr_->param_.start_angle * 1000 || azimuth > decoder_ptr_->param_.end_angle * 1000)) {
+    if (point_cloud_algorithm_callback == nullptr) {
+      if (decoder_ptr_->start_angle_ < decoder_ptr_->end_angle_ && (azimuth < decoder_ptr_->start_angle_ || azimuth > decoder_ptr_->end_angle_)) {
         distance = 0;
-      } else if (decoder_ptr_->param_.start_angle > decoder_ptr_->param_.end_angle &&
-                 (azimuth > decoder_ptr_->param_.end_angle * 1000 && azimuth < decoder_ptr_->param_.start_angle * 1000)) {
+      } else if (decoder_ptr_->start_angle_ > decoder_ptr_->end_angle_ &&
+                 (azimuth > decoder_ptr_->end_angle_ && azimuth < decoder_ptr_->start_angle_)) {
         distance = 0;
       }
 
@@ -445,34 +499,53 @@ class DecoderPacketGeneralVersionBase {
       }
     }
 
-    if (!decoder_ptr_->distance_section_.in(distance)) {
-      setX(point, 0);
-      setY(point, 0);
-      setZ(point, 0);
-      setIntensity(point, 0);
-    } else {
-      float dxy = distance * decoder_ptr_->trigon_.cos(elevation);
-      float x = dxy * decoder_ptr_->trigon_.cos(azimuth);
-      float y = dxy * decoder_ptr_->trigon_.sin(azimuth);
-      float z = distance * decoder_ptr_->trigon_.sin(elevation);
-      setX(point, x);
-      setY(point, y);
-      setZ(point, z);
-      setIntensity(point, reflectivity);
-    }
-    setTimestamp(point, timestamp);
-    setRing(point, ring);
+    if (decoder_ptr_->param_.point_cloud_enable) {
+      if (!decoder_ptr_->distance_section_.in(distance)) {
+        setX(point, 0);
+        setY(point, 0);
+        setZ(point, 0);
+        setIntensity(point, 0);
+      } else {
+        float dxy = distance * decoder_ptr_->trigon_.cos(elevation);
+        float x = dxy * decoder_ptr_->trigon_.cos(azimuth);
+        float y = dxy * decoder_ptr_->trigon_.sin(azimuth);
+        float z = distance * decoder_ptr_->trigon_.sin(elevation);
+        setX(point, x);
+        setY(point, y);
+        setZ(point, z);
+        setIntensity(point, reflectivity);
+      }
+      setTimestamp(point, timestamp);
+      setRing(point, ring);
+      setTag(point, tag);
 #ifdef ENABLE_GTEST
-    setPointId(point, point_info.id_);
-    setHorAngle(point, point_info.azimuth_);
-    setVerAngle(point, point_info.elevation_);
-    setDistance(point, distance);
+      setPointId(point, point_info.id_);
+      setHorAngle(point, point_info.azimuth_);
+      setVerAngle(point, point_info.elevation_);
+      setDistance(point, distance);
 #endif
+    }
+
+    if (decoder_ptr_->param_.laser_scan_enable && elevation == 0) {
+      if (decoder_ptr_->distance_section_.in(distance)) {
+        decoder_ptr_->scan_data_->ranges.emplace_back(distance);
+        decoder_ptr_->scan_data_->intensities.emplace_back(reflectivity);
+      } else {
+        if (!decoder_ptr_->param_.dense_points) {
+          decoder_ptr_->scan_data_->ranges.emplace_back(NAN);
+          decoder_ptr_->scan_data_->intensities.emplace_back(NAN);
+        } else {
+          decoder_ptr_->scan_data_->ranges.emplace_back(0);
+          decoder_ptr_->scan_data_->intensities.emplace_back(0);
+        }
+      }
+    }
+
     return point;
   }
 
   void transformPointCloud() {
-    for (int i = 0; i < decoder_ptr_->point_cloud_->points.size(); i++) {
+    for (uint32_t i = 0; i < decoder_ptr_->point_cloud_->points.size(); i++) {
       if (decoder_ptr_->point_cloud_->points[i].x == 0 && decoder_ptr_->point_cloud_->points[i].y == 0 &&
           decoder_ptr_->point_cloud_->points[i].z == 0) {
         if (!decoder_ptr_->param_.dense_points) {

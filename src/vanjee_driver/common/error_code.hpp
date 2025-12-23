@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -64,7 +64,9 @@ enum ErrCode {
   ERRCODE_POINTCLOUDNULL = 0x82,
   ERRCODE_IMUPACKETNULL = 0x83,
   ERRCODE_LASERSCANPACKETNULL = 0x84,
-  ERRCODE_DEVICECONTROLPACKETNULL = 0X85
+  ERRCODE_DEVICECONTROLPACKETNULL = 0X85,
+  ERRCODE_PACKETNULL = 0X86,
+  ERRCODE_LIDARPARAMPACKETNULL = 0x87
 
 };
 
@@ -123,6 +125,10 @@ struct Error {
         return "ERRCODE_LASERSCANPACKETNULL";
       case ERRCODE_DEVICECONTROLPACKETNULL:
         return "ERRCODE_DEVICECONTROLPACKETNULL";
+      case ERRCODE_PACKETNULL:
+        return "ERRCODE_PACKETNULL";
+      case ERRCODE_LIDARPARAMPACKETNULL:
+        return "ERRCODE_LIDARPARAMPACKETNULL";
 
       default:
         return "ERRCODE_SUCCESS";

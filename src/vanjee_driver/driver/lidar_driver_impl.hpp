@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -47,6 +47,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vanjee_driver/macro/version.hpp>
 #include <vanjee_driver/msg/device_ctrl_msg.hpp>
 #include <vanjee_driver/msg/imu_packet.hpp>
+#include <vanjee_driver/msg/lidar_parameter_interface_msg.hpp>
+#include <vanjee_driver/msg/packet.hpp>
 #include <vanjee_driver/msg/scan_data_msg.hpp>
 #include <vanjee_driver/utility/buffer.hpp>
 #include <vanjee_driver/utility/sync_queue.hpp>
@@ -71,8 +73,13 @@ class LidarDriverImpl {
                            const std::function<void(std::shared_ptr<ScanData>)> &cb_put_scan_data);
   void regDeviceCtrlCallback(const std::function<std::shared_ptr<DeviceCtrl>(void)> &cb_get_device_ctrl_state,
                              const std::function<void(std::shared_ptr<DeviceCtrl>)> &cb_put_device_ctrl_state);
+  void regPacketCallback(const std::function<void(std::shared_ptr<Packet>)> &cb_put_packet);
+  void regLidarParameterInterfaceCallback(const std::function<std::shared_ptr<LidarParameterInterface>(void)> &cb_get_lidar_param,
+                                          const std::function<void(std::shared_ptr<LidarParameterInterface>)> &cb_put_lidar_param);
   void regExceptionCallback(const std::function<void(const Error &)> &cb_excep);
   void deviceCtrlCmdInsert(const DeviceCtrl &device_ctrl);
+  void decodePacket(const Packet &packet);
+  void lidarParameterInsert(const LidarParameterInterface &lidar_param);
 
   bool init(const WJDriverParam &param);
   bool start();
@@ -90,13 +97,19 @@ class LidarDriverImpl {
   std::shared_ptr<ImuPacket> getImuPacket();
   std::shared_ptr<ScanData> getScanData();
   std::shared_ptr<DeviceCtrl> getDeviceCtrl();
+  std::shared_ptr<LidarParameterInterface> getLidarParameter();
+
   void splitFrame(uint16_t height, double ts);
   void imuPacketCallback();
   void scanDataCallback(double ts);
   void deviceCtrlCallback(double ts);
+  void lidarParameterCallback(double ts);
+
   void setPointCloudHeader(std::shared_ptr<T_PointCloud> msg, uint16_t height, double chan_ts);
   void setScanDataHeader(std::shared_ptr<ScanData> msg, double ts);
   void setDeviceCtrlHeader(std::shared_ptr<DeviceCtrl> msg, double ts);
+  void setPacketHeader(std::shared_ptr<Packet> msg, double ts);
+  void setLidarParameterHeader(std::shared_ptr<LidarParameterInterface> msg, double ts);
 
  private:
   WJDriverParam driver_param_;
@@ -108,7 +121,12 @@ class LidarDriverImpl {
   std::function<void(std::shared_ptr<ScanData>)> cb_put_scan_data_;
   std::function<std::shared_ptr<DeviceCtrl>(void)> cb_get_device_ctrl_state_;
   std::function<void(std::shared_ptr<DeviceCtrl>)> cb_put_device_ctrl_state_;
+  std::function<void(std::shared_ptr<Packet>)> cb_put_packet_;
+  std::function<std::shared_ptr<LidarParameterInterface>(void)> cb_get_lidar_param_;
+  std::function<void(std::shared_ptr<LidarParameterInterface>)> cb_put_lidar_param_;
+
   std::function<void(const Error &)> cb_excep_;
+  std::function<void(const uint8_t *, size_t)> cb_feed_pkt_;
 
   std::shared_ptr<Input> input_ptr_;
   std::shared_ptr<Decoder<T_PointCloud>> decoder_ptr_;
@@ -121,13 +139,23 @@ class LidarDriverImpl {
   uint32_t point_cloud_seq_;
   uint32_t scan_data_seq_;
   uint32_t device_ctrl_seq_;
+  uint32_t packet_seq_;
+  uint32_t lidar_param_seq_;
   bool to_exit_handle_;
   bool init_flag_;
   bool start_flag_;
 };
 template <typename T_PointCloud>
 inline LidarDriverImpl<T_PointCloud>::LidarDriverImpl()
-    : pkt_seq_(0), point_cloud_seq_(0), imu_seq_(0), scan_data_seq_(0), device_ctrl_seq_(0), init_flag_(false), start_flag_(false) {
+    : pkt_seq_(0),
+      imu_seq_(0),
+      point_cloud_seq_(0),
+      scan_data_seq_(0),
+      device_ctrl_seq_(0),
+      packet_seq_(0),
+      lidar_param_seq_(0),
+      init_flag_(false),
+      start_flag_(false) {
 }
 
 template <typename T_PointCloud>
@@ -164,6 +192,8 @@ std::shared_ptr<ScanData> LidarDriverImpl<T_PointCloud>::getScanData() {
   while (1) {
     std::shared_ptr<ScanData> scan_data = cb_get_scan_data_();
     if (scan_data) {
+      scan_data->ranges.clear();
+      scan_data->intensities.clear();
       return scan_data;
     }
 
@@ -180,6 +210,18 @@ std::shared_ptr<DeviceCtrl> LidarDriverImpl<T_PointCloud>::getDeviceCtrl() {
     }
 
     LIMIT_CALL(runExceptionCallback(Error(ERRCODE_DEVICECONTROLPACKETNULL)), 1);
+  }
+}
+
+template <typename T_PointCloud>
+std::shared_ptr<LidarParameterInterface> LidarDriverImpl<T_PointCloud>::getLidarParameter() {
+  while (1) {
+    std::shared_ptr<LidarParameterInterface> lidar_param = cb_get_lidar_param_();
+    if (lidar_param) {
+      return lidar_param;
+    }
+
+    LIMIT_CALL(runExceptionCallback(Error(ERRCODE_LIDARPARAMPACKETNULL)), 1);
   }
 }
 
@@ -226,6 +268,33 @@ void LidarDriverImpl<T_PointCloud>::deviceCtrlCmdInsert(const DeviceCtrl &device
 }
 
 template <typename T_PointCloud>
+void LidarDriverImpl<T_PointCloud>::regPacketCallback(const std::function<void(std::shared_ptr<Packet>)> &cb_put_packet) {
+  cb_put_packet_ = cb_put_packet;
+}
+
+template <typename T_PointCloud>
+void LidarDriverImpl<T_PointCloud>::regLidarParameterInterfaceCallback(
+    const std::function<std::shared_ptr<LidarParameterInterface>(void)> &cb_get_lidar_param,
+    const std::function<void(std::shared_ptr<LidarParameterInterface>)> &cb_put_lidar_param) {
+  cb_get_lidar_param_ = cb_get_lidar_param;
+  cb_put_lidar_param_ = cb_put_lidar_param;
+}
+
+template <typename T_PointCloud>
+void LidarDriverImpl<T_PointCloud>::lidarParameterInsert(const LidarParameterInterface &lidar_param) {
+  if (start_flag_) {
+    decoder_ptr_->lidar_param_->cmd_id = lidar_param.cmd_id;
+    decoder_ptr_->lidar_param_->cmd_type = lidar_param.cmd_type;
+    decoder_ptr_->lidar_param_->repeat_interval = lidar_param.repeat_interval;
+    decoder_ptr_->lidar_param_->data = lidar_param.data;
+    if (driver_param_.input_param.connect_type == 3 || driver_param_.lidar_type == LidarType::vanjee_722z)
+      decoder_ptr_->addItem2GetDifoCtrlDataMapPtr(lidar_param);
+    else
+      difop_ptr_->addItem2GetDifoCtrlDataMapPtr(lidar_param);
+  }
+}
+
+template <typename T_PointCloud>
 inline bool LidarDriverImpl<T_PointCloud>::init(const WJDriverParam &param) {
   if (init_flag_) {
     return true;
@@ -236,28 +305,29 @@ inline bool LidarDriverImpl<T_PointCloud>::init(const WJDriverParam &param) {
   decoder_ptr_->imu_packet_ = getImuPacket();
   decoder_ptr_->scan_data_ = getScanData();
   decoder_ptr_->device_ctrl_ = getDeviceCtrl();
+  decoder_ptr_->lidar_param_ = getLidarParameter();
   decoder_ptr_->regCallback(std::bind(&LidarDriverImpl<T_PointCloud>::runExceptionCallback, this, std::placeholders::_1),
                             std::bind(&LidarDriverImpl<T_PointCloud>::splitFrame, this, std::placeholders::_1, std::placeholders::_2),
                             std::bind(&LidarDriverImpl<T_PointCloud>::imuPacketCallback, this),
                             std::bind(&LidarDriverImpl<T_PointCloud>::scanDataCallback, this, std::placeholders::_1),
-                            std::bind(&LidarDriverImpl<T_PointCloud>::deviceCtrlCallback, this, std::placeholders::_1));
+                            std::bind(&LidarDriverImpl<T_PointCloud>::deviceCtrlCallback, this, std::placeholders::_1),
+                            std::bind(&LidarDriverImpl<T_PointCloud>::lidarParameterCallback, this, std::placeholders::_1));
 
   double packet_duration = decoder_ptr_->getPacketDuration();
 
-  input_ptr_ = InputFactory::createInput(param.input_type, param.input_param, packet_duration);
+  input_ptr_ = InputFactory::createInput(param.input_type, param.input_param, packet_duration, cb_feed_pkt_);
   input_ptr_->regCallback(std::bind(&LidarDriverImpl<T_PointCloud>::runExceptionCallback, this, std::placeholders::_1),
                           std::bind(&LidarDriverImpl<T_PointCloud>::packetGet, this, std::placeholders::_1),
                           std::bind(&LidarDriverImpl<T_PointCloud>::packetPut, this, std::placeholders::_1, std::placeholders::_2));
 
-  if (driver_param_.input_type == InputType::ONLINE_LIDAR) {
-    difop_ptr_ = DifopFactory::createDifop(param);
-    difop_ptr_->regCallback(std::bind(&Input::send_, input_ptr_, std::placeholders::_1, std::placeholders::_2),
-                            std::bind(&Decoder<T_PointCloud>::processDifopPkt, decoder_ptr_, std::placeholders::_1));
-    difop_ptr_->initGetDifoCtrlDataMapPtr();
-    decoder_ptr_->regGetDifoCtrlDataInterface(difop_ptr_->getDifoCtrlData_map_ptr_);
+  difop_ptr_ = DifopFactory::createDifop(param);
+  difop_ptr_->paramInit(param);
+  difop_ptr_->regCallback(std::bind(&Input::send_, input_ptr_, std::placeholders::_1, std::placeholders::_2),
+                          std::bind(&Decoder<T_PointCloud>::processDifopPkt, decoder_ptr_, std::placeholders::_1));
+  difop_ptr_->initGetDifoCtrlDataMapPtr();
+  decoder_ptr_->regGetDifoCtrlDataInterface(difop_ptr_->getDifoCtrlData_map_ptr_);
 
-    difop_ptr_->start(driver_param_.input_param.connect_type);
-  }
+  difop_ptr_->start();
 
   if (!input_ptr_->init()) {
     goto failInputInit;
@@ -301,13 +371,16 @@ inline void LidarDriverImpl<T_PointCloud>::stop() {
   }
 
   input_ptr_->stop();
-  if (driver_param_.input_type == InputType::ONLINE_LIDAR) {
-    difop_ptr_->stop();
-  }
+  difop_ptr_->stop();
 
   to_exit_handle_ = true;
   handle_thread_.join();
   start_flag_ = false;
+}
+
+template <typename T_PointCloud>
+inline void LidarDriverImpl<T_PointCloud>::decodePacket(const Packet &packet) {
+  cb_feed_pkt_(packet.buf.data(), packet.buf.size());
 }
 
 template <typename T_PointCloud>
@@ -347,6 +420,7 @@ inline void LidarDriverImpl<T_PointCloud>::packetPut(std::shared_ptr<Buffer> pkt
 /// free queue 'free_pkt_queue_' after processing
 template <typename T_PointCloud>
 inline void LidarDriverImpl<T_PointCloud>::processPacket() {
+  double pre_pkt_host_ts = getTimeHost() * 1e-6;
   while (!to_exit_handle_) {
     std::shared_ptr<Buffer> pkt = pkt_queue_.popWait(50000);
 
@@ -354,10 +428,38 @@ inline void LidarDriverImpl<T_PointCloud>::processPacket() {
       continue;
     }
 
-    bool pkt_to_split = decoder_ptr_->processMsopPkt(pkt->data(), pkt->dataSize());
+    if (driver_param_.decoder_param.send_packet_enable) {
+      double pkt_host_ts = getTimeHost() * 1e-6;
+      std::shared_ptr<Packet> packet = std::make_shared<Packet>();
+      packet->buf.resize(pkt->dataSize());
+      packet->buf.assign(pkt->data(), pkt->data() + pkt->dataSize());
+      setPacketHeader(packet, pkt_host_ts);
+      cb_put_packet_(packet);
 
-    if (driver_param_.input_type == InputType::ONLINE_LIDAR && difop_ptr_->processDifoPktFlag())
-      difop_ptr_->dataEnqueue(pkt->getIp(), pkt->getBuf());
+      if (pkt_host_ts - pre_pkt_host_ts > 5.0) {
+        pre_pkt_host_ts = pkt_host_ts;
+        if (decoder_ptr_->protocol_ver_angle_table.size() > 0) {
+          std::shared_ptr<Packet> lidar_params = std::make_shared<Packet>();
+          lidar_params->buf.resize(decoder_ptr_->protocol_ver_angle_table.size());
+          lidar_params->buf.assign(decoder_ptr_->protocol_ver_angle_table.begin(), decoder_ptr_->protocol_ver_angle_table.end());
+          setPacketHeader(lidar_params, pkt_host_ts);
+          cb_put_packet_(lidar_params);
+        }
+
+        if (decoder_ptr_->protocol_hor_angle_table.size() > 0) {
+          std::shared_ptr<Packet> lidar_params = std::make_shared<Packet>();
+          lidar_params->buf.resize(decoder_ptr_->protocol_hor_angle_table.size());
+          lidar_params->buf.assign(decoder_ptr_->protocol_hor_angle_table.begin(), decoder_ptr_->protocol_hor_angle_table.end());
+          setPacketHeader(lidar_params, pkt_host_ts);
+          cb_put_packet_(lidar_params);
+        }
+      } else if (pkt_host_ts - pre_pkt_host_ts < -5.0) {
+        pre_pkt_host_ts = pkt_host_ts;
+      }
+    }
+
+    decoder_ptr_->processMsopPkt(pkt->data(), pkt->dataSize());
+    difop_ptr_->dataEnqueue(pkt->getIp(), pkt->getBuf());
 
     free_pkt_queue_.push(pkt);
   }
@@ -408,9 +510,15 @@ void LidarDriverImpl<T_PointCloud>::deviceCtrlCallback(double ts) {
     setDeviceCtrlHeader(pkt, ts);
     cb_put_device_ctrl_state_(pkt);
     decoder_ptr_->device_ctrl_ = getDeviceCtrl();
-  } else {
-    runExceptionCallback(Error(ERRCODE_ZEROPOINTS));
   }
+}
+
+template <typename T_PointCloud>
+void LidarDriverImpl<T_PointCloud>::lidarParameterCallback(double ts) {
+  std::shared_ptr<LidarParameterInterface> pkt = decoder_ptr_->lidar_param_;
+  setLidarParameterHeader(pkt, ts);
+  cb_put_lidar_param_(pkt);
+  decoder_ptr_->lidar_param_ = getLidarParameter();
 }
 
 /// @brief Point cloud split frame function
@@ -419,10 +527,12 @@ void LidarDriverImpl<T_PointCloud>::splitFrame(uint16_t height, double ts) {
   std::shared_ptr<T_PointCloud> cloud = decoder_ptr_->point_cloud_;
   if (cloud->points.size() > 0) {
     setPointCloudHeader(cloud, height, ts);
-#ifdef POINT_TYPE_XYZIRT
+#ifndef USE_TIME_WITH_FLOAT_TYPE_FLAG
     if (!decoder_ptr_->param_.use_offset_timestamp) {
-      for (int i = 0; i < cloud->points.size(); i++) {
-        cloud->points[i].timestamp += ts;
+      double timestamp = 0;
+      for (auto &pt : cloud->points) {
+        getTimestamp(pt, timestamp);
+        setTimestamp(pt, timestamp + ts);
       }
     }
 #endif
@@ -453,7 +563,21 @@ void LidarDriverImpl<T_PointCloud>::setScanDataHeader(std::shared_ptr<ScanData> 
 template <typename T_PointCloud>
 void LidarDriverImpl<T_PointCloud>::setDeviceCtrlHeader(std::shared_ptr<DeviceCtrl> msg, double ts) {
   msg->seq = device_ctrl_seq_++;
+  msg->timestamp = ts < 0 ? 0 : ts;
+}
+
+/// @brief Set packet head
+template <typename T_PointCloud>
+void LidarDriverImpl<T_PointCloud>::setPacketHeader(std::shared_ptr<Packet> msg, double ts) {
+  msg->seq = packet_seq_++;
   msg->timestamp = ts;
+}
+
+/// @brief Set lidar param head
+template <typename T_PointCloud>
+void LidarDriverImpl<T_PointCloud>::setLidarParameterHeader(std::shared_ptr<LidarParameterInterface> msg, double ts) {
+  msg->seq = lidar_param_seq_++;
+  msg->timestamp = ts < 0 ? 0 : ts;
 }
 
 }  // namespace lidar

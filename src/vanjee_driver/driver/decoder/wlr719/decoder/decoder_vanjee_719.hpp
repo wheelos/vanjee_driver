@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -38,6 +38,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 #include <vanjee_driver/driver/decoder/decoder_mech.hpp>
+#include <vanjee_driver/driver/decoder/wlr719/filter/tail_filter.hpp>
 #include <vanjee_driver/driver/decoder/wlr719/protocol/frames/cmd_repository_719.hpp>
 #include <vanjee_driver/driver/decoder/wlr719/protocol/frames/protocol_heartbeat.hpp>
 #include <vanjee_driver/driver/decoder/wlr719/protocol/frames/protocol_scan_data_get.hpp>
@@ -84,13 +85,28 @@ typedef struct _Vanjee719MsopPkt {
     check = ntohs(check);
   }
 } Vanjee719MsopPkt;
+
+typedef struct _Vanjee719ScanModeParams {
+  uint8_t bank_num;
+  uint8_t frequency;
+  uint16_t point_num;
+  int32_t resolution_index;
+  int32_t hz_index;
+
+  void setValue(uint8_t bank, uint8_t freq, uint16_t point, int32_t index, int32_t hz) {
+    bank_num = bank;
+    frequency = freq;
+    point_num = point;
+    resolution_index = index;
+    hz_index = hz;
+  }
+} Vanjee719ScanModeParams;
 #pragma pack(pop)
 
 template <typename T_PointCloud>
 class DecoderVanjee719 : public DecoderMech<T_PointCloud> {
  private:
-  std::vector<std::vector<double>> all_points_luminous_moment_719_;  // Cache a circle of point cloud time
-                                                                     // difference
+  std::vector<std::vector<double>> all_points_luminous_moment_719_;  // Cache a circle of point cloud time difference
   double luminous_period_of_ld_ = 0.00000925;                        // Time interval at adjacent horizontal angles
 
   int32_t azimuth_cur_ = -1.0;
@@ -103,7 +119,11 @@ class DecoderVanjee719 : public DecoderMech<T_PointCloud> {
 
   std::vector<uint8_t> buf_cache_;
 
+  float distance_cache_[10800] = {0.0};
+
   void initLdLuminousMoment(void);
+  void pointCloudPublish(Vanjee719ScanModeParams &scan_mode_params);
+  void laserScanPublish(Vanjee719ScanModeParams &scan_mode_params);
 
  public:
   constexpr static double FRAME_DURATION = 0.033333333;
@@ -143,11 +163,16 @@ inline WJDecoderMechConstParam &DecoderVanjee719<T_PointCloud>::getConstParam(ui
 template <typename T_PointCloud>
 inline DecoderVanjee719<T_PointCloud>::DecoderVanjee719(const WJDecoderParam &param)
     : DecoderMech<T_PointCloud>(getConstParam(param.publish_mode), param), chan_angles_(this->const_param_.LASER_NUM) {
+  this->point_cloud_detect_params_.enable = true;
   if (param.max_distance < param.min_distance)
     WJ_WARNING << "config params (max distance < min distance)!" << WJ_REND;
 
   this->packet_duration_ = FRAME_DURATION / SINGLE_PKT_NUM;
   split_strategy_ = std::make_shared<SplitStrategyByBlock>(0);
+
+  this->start_angle_ = this->param_.start_angle * 1000;
+  this->end_angle_ = this->param_.end_angle * 1000;
+
   initLdLuminousMoment();
 }
 
@@ -166,6 +191,67 @@ void DecoderVanjee719<T_PointCloud>::initLdLuminousMoment() {
       all_points_luminous_moment_719_[0][col] = col * luminous_period_of_ld_;
     }
   }
+}
+
+template <typename T_PointCloud>
+void DecoderVanjee719<T_PointCloud>::pointCloudPublish(Vanjee719ScanModeParams &scan_mode_params) {
+  if (this->param_.tail_filter_enable) {
+    if (this->point_cloud_->points.size() == scan_mode_params.point_num) {
+      float distance_point[10800];
+      memcpy(distance_point, distance_cache_, sizeof(float) * 10800);
+      process(distance_point, scan_mode_params.hz_index);
+      for (uint32_t i = 0; i < this->point_cloud_->points.size(); i++) {
+        if (distance_point[i] == 0 || distance_point[i] == NAN) {
+          if (!this->param_.dense_points) {
+            this->point_cloud_->points[i].x = NAN;
+            this->point_cloud_->points[i].y = NAN;
+            this->point_cloud_->points[i].z = NAN;
+          } else {
+            this->point_cloud_->points[i].x = 0;
+            this->point_cloud_->points[i].y = 0;
+            this->point_cloud_->points[i].z = 0;
+          }
+        }
+      }
+      this->cb_split_frame_(this->const_param_.LASER_NUM, this->cloudTs());
+    } else {
+      this->point_cloud_->points.clear();
+    }
+  } else {
+    this->cb_split_frame_(this->const_param_.LASER_NUM, this->cloudTs());
+  }
+}
+
+template <typename T_PointCloud>
+void DecoderVanjee719<T_PointCloud>::laserScanPublish(Vanjee719ScanModeParams &scan_mode_params) {
+  if (this->scan_data_->ranges.size() == scan_mode_params.point_num) {
+    this->scan_data_->angle_min = -180;
+    this->scan_data_->angle_max = 180;
+    this->scan_data_->angle_increment = 360.0 / scan_mode_params.point_num;
+    this->scan_data_->time_increment =
+        all_points_luminous_moment_719_[scan_mode_params.resolution_index][1] - all_points_luminous_moment_719_[scan_mode_params.resolution_index][0];
+    this->scan_data_->scan_time = 1.0 / (float)(scan_mode_params.frequency);
+    this->scan_data_->range_min = this->param_.min_distance;
+    this->scan_data_->range_max = this->param_.max_distance;
+
+    if (this->param_.tail_filter_enable) {
+      float distance_scan[10800];
+      memcpy(distance_scan, distance_cache_, sizeof(float) * 10800);
+      process(distance_scan, scan_mode_params.hz_index);
+      for (uint32_t i = 0; i < this->scan_data_->ranges.size(); i++) {
+        if (distance_scan[i] == 0 || distance_scan[i] == NAN) {
+          if (!this->param_.dense_points) {
+            this->scan_data_->ranges[i] = NAN;
+          } else {
+            this->scan_data_->ranges[i] = 0;
+          }
+        }
+      }
+    }
+    this->cb_scan_data_(this->cloudTs());
+  }
+  this->scan_data_->ranges.clear();
+  this->scan_data_->intensities.clear();
 }
 
 template <typename T_PointCloud>
@@ -235,114 +321,104 @@ inline bool DecoderVanjee719<T_PointCloud>::decodeMsopPkt_1(const uint8_t *packe
     WJ_WARNING << "loss " << (loss_packets_num - 1) << " packets" << WJ_REND;
   pre_frame_id_ = pkt.frame_id;
 
-  if (!this->param_.use_lidar_clock)
-    pkt_ts = getTimeHost() * 1e-6;
-  else {
+  this->point_cloud_detect_params_.point_cloud_pkt_host_ts = getTimeHost() * 1e-6;
+  if (!this->param_.use_lidar_clock) {
+    pkt_ts = this->point_cloud_detect_params_.point_cloud_pkt_host_ts;
+  } else {
     double gapTime1900_1970 = (25567LL * 24 * 3600);
     pkt_ts = (double)pkt.second - gapTime1900_1970 + ((double)pkt.subsecond * 0.23283 * 1e-9);
+    pkt_ts = pkt_ts < 0 ? 0 : pkt_ts;
   }
 
-  if (pkt_ts < 0)
-    pkt_ts = 0;
-
-  int32_t resolution_index = 0;
-  uint16_t point_num = 3600;
-  uint8_t frequency = 30;
-  uint8_t bank_num = 36;
+  Vanjee719ScanModeParams scan_mode_params;
   if (pkt.sub_cmd == 0x05 || pkt.sub_cmd == 0x06) {
-    bank_num = 36;
-    frequency = 10;
-    point_num = 10800;
-    resolution_index = 0;
+    scan_mode_params.setValue(36, 10, 10800, 0, 0);
   } else if (pkt.sub_cmd == 0x07 || pkt.sub_cmd == 0x08) {
-    bank_num = 18;
-    frequency = 20;
-    point_num = 5400;
-    resolution_index = 1;
+    scan_mode_params.setValue(18, 20, 5400, 1, 2);
   } else if (pkt.sub_cmd == 0x03 || pkt.sub_cmd == 0x04) {
-    bank_num = 12;
-    frequency = 30;
-    point_num = 3600;
-    resolution_index = 2;
+    scan_mode_params.setValue(12, 30, 3600, 2, 1);
   } else {
     return ret;
   }
 
-  if (this->param_.device_ctrl_state_enable && (pkt.protocol_version & 0xf0) != 0 && (pkt.device_status == 1 || pkt.device_status == 2)) {
-    this->device_ctrl_->cmd_id = 0x0100;
-    this->device_ctrl_->cmd_param = pkt.device_status;
-    this->device_ctrl_->cmd_state = pkt.device_status;
-    this->cb_device_ctrl_state_(pkt_ts);
+  if ((this->param_.device_ctrl_state_enable || this->param_.send_lidar_param_enable) && (pkt.protocol_version & 0xf0) != 0 &&
+      (pkt.device_status == 1 || pkt.device_status == 2)) {
+    this->deviceStatePublish(0, pkt.device_status, pkt.device_status, pkt_ts);
   }
 
   bool publish_flag = false;
   if (pre_bank_id_ != 0) {
-    if (loss_packets_num >= 2 * bank_num) {
+    if (loss_packets_num >= 2 * scan_mode_params.bank_num) {
       this->scan_data_->ranges.clear();
       this->scan_data_->intensities.clear();
       this->point_cloud_->points.clear();
       publish_flag = true;
-    } else if (loss_packets_num > bank_num && loss_packets_num < 2 * bank_num) {
-      if (pkt.bank_id <= loss_packets_num - bank_num) {
+    } else if (loss_packets_num > scan_mode_params.bank_num && loss_packets_num < 2 * scan_mode_params.bank_num) {
+      if (pkt.bank_id <= loss_packets_num - scan_mode_params.bank_num) {
         this->scan_data_->ranges.clear();
         this->scan_data_->intensities.clear();
         this->point_cloud_->points.clear();
       }
       publish_flag = true;
-    } else if (loss_packets_num > 1 && loss_packets_num <= bank_num && pkt.bank_id <= loss_packets_num - 1) {
+    } else if (loss_packets_num > 1 && loss_packets_num <= scan_mode_params.bank_num && pkt.bank_id <= loss_packets_num - 1) {
       publish_flag = true;
     }
   }
   pre_bank_id_ = pkt.bank_id;
 
-  azimuth_cur_ = (pkt.bank_id - 1) * (360000 * 300 / point_num);
+  azimuth_cur_ = (pkt.bank_id - 1) * (360000 * 300 / scan_mode_params.point_num);
 
-  if ((this->split_strategy_->newBlock((int64_t)pkt.bank_id % bank_num) && (int64_t)pkt.bank_id != bank_num) || publish_flag) {
-    if (!this->param_.use_lidar_clock)
-      this->first_point_ts_ = pkt_ts - all_points_luminous_moment_719_[resolution_index][300 * pkt.bank_id - 1] - (1.0 / frequency);
-    else
+  if ((this->split_strategy_->newBlock((int64_t)pkt.bank_id % scan_mode_params.bank_num) && (int64_t)pkt.bank_id != scan_mode_params.bank_num) ||
+      publish_flag) {
+    if (this->point_cloud_detect_params_.enable) {
+      this->pointCloudDetectParamsUpdate();
+    }
+    if (!this->param_.use_lidar_clock) {
+      this->first_point_ts_ =
+          pkt_ts - all_points_luminous_moment_719_[scan_mode_params.resolution_index][300 * pkt.bank_id - 1] - (1.0 / scan_mode_params.frequency);
+    } else {
       this->first_point_ts_ = this->prev_pkt_ts_;
-    this->last_point_ts_ =
-        this->first_point_ts_ + all_points_luminous_moment_719_[resolution_index][all_points_luminous_moment_719_[resolution_index].size() - 1];
+    }
+    this->last_point_ts_ = this->first_point_ts_ +
+                           all_points_luminous_moment_719_[scan_mode_params.resolution_index]
+                                                          [all_points_luminous_moment_719_[scan_mode_params.resolution_index].size() - 1];
 
     if (this->param_.point_cloud_enable) {
-      this->cb_split_frame_(this->const_param_.LASER_NUM, this->cloudTs());
+      pointCloudPublish(scan_mode_params);
     }
 
     if (this->param_.laser_scan_enable) {
-      if (this->scan_data_->ranges.size() == point_num) {
-        this->scan_data_->angle_min = -180;
-        this->scan_data_->angle_max = 180;
-        this->scan_data_->angle_increment = 360.0 / point_num;
-        this->scan_data_->time_increment =
-            all_points_luminous_moment_719_[resolution_index][1] - all_points_luminous_moment_719_[resolution_index][0];
-        this->scan_data_->scan_time = 1.0 / (float)frequency;
-        this->scan_data_->range_min = this->param_.min_distance;
-        this->scan_data_->range_max = this->param_.max_distance;
-
-        this->cb_scan_data_(this->cloudTs());
-      }
-      this->scan_data_->ranges.clear();
-      this->scan_data_->intensities.clear();
+      laserScanPublish(scan_mode_params);
+    }
+    if (this->param_.tail_filter_enable) {
+      memset(distance_cache_, 0.0, sizeof(distance_cache_));
     }
     ret = true;
   }
 
   double timestamp_point;
   for (uint16_t point_index = 0; point_index < 300; point_index++) {
-    int32_t azimuth = (azimuth_cur_ + point_index * 360000 / point_num) % 360000;
+    int32_t azimuth = (azimuth_cur_ + point_index * 360000 / scan_mode_params.point_num) % 360000;
 
     uint32_t point_id = 300 * (pkt.bank_id - 1) + point_index;
     if (this->param_.ts_first_point == true) {
-      timestamp_point = all_points_luminous_moment_719_[resolution_index][point_id];
+      timestamp_point = all_points_luminous_moment_719_[scan_mode_params.resolution_index][point_id];
     } else {
-      timestamp_point = all_points_luminous_moment_719_[resolution_index][point_id] -
-                        all_points_luminous_moment_719_[resolution_index][all_points_luminous_moment_719_[resolution_index].size() - 1];
+      timestamp_point = all_points_luminous_moment_719_[scan_mode_params.resolution_index][point_id] -
+                        all_points_luminous_moment_719_[scan_mode_params.resolution_index]
+                                                       [all_points_luminous_moment_719_[scan_mode_params.resolution_index].size() - 1];
     }
 
     float x, y, z, xy;
     uint32_t point_value = pkt.blocks[point_index].point_data;
     float distance = ((point_value & 0x7fff800) >> 11) / 1000.0;
+    if (distance > 0.0f) {
+      this->point_cloud_detect_params_.valid_point_num++;
+    }
+
+    if (this->param_.tail_filter_enable) {
+      distance_cache_[point_id] = distance;
+    }
     float intensity = (point_value & 0x7ff) * 128;
 
     int32_t angle_vert = 0;
@@ -353,12 +429,12 @@ inline bool DecoderVanjee719<T_PointCloud>::decodeMsopPkt_1(const uint8_t *packe
     }
 
     int32_t azimuth_index = (angle_horiz_final + 180000) % 360000;
-    if (this->param_.start_angle < this->param_.end_angle) {
-      if (azimuth_index < this->param_.start_angle * 1000 || azimuth_index > this->param_.end_angle * 1000) {
+    if (this->start_angle_ < this->end_angle_) {
+      if (azimuth_index < this->start_angle_ || azimuth_index > this->end_angle_) {
         distance = 0;
       }
     } else {
-      if (azimuth_index > this->param_.end_angle * 1000 && azimuth_index < this->param_.start_angle * 1000) {
+      if (azimuth_index > this->end_angle_ && azimuth_index < this->start_angle_) {
         distance = 0;
       }
     }
@@ -396,6 +472,7 @@ inline bool DecoderVanjee719<T_PointCloud>::decodeMsopPkt_1(const uint8_t *packe
       }
       setTimestamp(point, timestamp_point);
       setRing(point, this->first_line_id_);
+      setTag(point, 0);
 #ifdef ENABLE_GTEST
       setPointId(point, point_id);
       setHorAngle(point, azimuth_index / 1000.0);
@@ -422,33 +499,29 @@ inline bool DecoderVanjee719<T_PointCloud>::decodeMsopPkt_1(const uint8_t *packe
     }
   }
 
-  if ((int64_t)pkt.bank_id == bank_num) {
-    if (!this->param_.use_lidar_clock)
-      this->first_point_ts_ = pkt_ts - all_points_luminous_moment_719_[resolution_index][300 * pkt.bank_id - 1];
-    else
+  if ((int64_t)pkt.bank_id == scan_mode_params.bank_num) {
+    if (this->point_cloud_detect_params_.enable) {
+      this->pointCloudDetectParamsUpdate();
+    }
+    if (!this->param_.use_lidar_clock) {
+      this->first_point_ts_ = pkt_ts - all_points_luminous_moment_719_[scan_mode_params.resolution_index][300 * pkt.bank_id - 1];
+    } else {
       this->first_point_ts_ = pkt_ts;
-    this->last_point_ts_ =
-        this->first_point_ts_ + all_points_luminous_moment_719_[resolution_index][all_points_luminous_moment_719_[resolution_index].size() - 1];
+    }
+    this->last_point_ts_ = this->first_point_ts_ +
+                           all_points_luminous_moment_719_[scan_mode_params.resolution_index]
+                                                          [all_points_luminous_moment_719_[scan_mode_params.resolution_index].size() - 1];
 
     if (this->param_.point_cloud_enable) {
-      this->cb_split_frame_(this->const_param_.LASER_NUM, this->cloudTs());
+      pointCloudPublish(scan_mode_params);
     }
 
     if (this->param_.laser_scan_enable) {
-      if (this->scan_data_->ranges.size() == point_num) {
-        this->scan_data_->angle_min = -180;
-        this->scan_data_->angle_max = 180;
-        this->scan_data_->angle_increment = 360.0 / point_num;
-        this->scan_data_->time_increment =
-            all_points_luminous_moment_719_[resolution_index][1] - all_points_luminous_moment_719_[resolution_index][0];
-        this->scan_data_->scan_time = 1.0 / (float)frequency;
-        this->scan_data_->range_min = this->param_.min_distance;
-        this->scan_data_->range_max = this->param_.max_distance;
+      laserScanPublish(scan_mode_params);
+    }
 
-        this->cb_scan_data_(this->cloudTs());
-      }
-      this->scan_data_->ranges.clear();
-      this->scan_data_->intensities.clear();
+    if (this->param_.tail_filter_enable) {
+      memset(distance_cache_, 0.0, sizeof(distance_cache_));
     }
     ret = true;
   }
@@ -462,9 +535,9 @@ void DecoderVanjee719<T_PointCloud>::processDifopPkt(std::shared_ptr<ProtocolBas
   std::shared_ptr<ProtocolAbstract719> p;
   std::shared_ptr<CmdClass> sp_cmd = std::make_shared<CmdClass>(protocol->MainCmd, protocol->SubCmd);
 
-  if (*sp_cmd == *(CmdRepository719::CreateInstance()->Sp_ScanDataGet)) {
+  if (*sp_cmd == *(CmdRepository719::CreateInstance()->sp_scan_data_get_)) {
     p = std::make_shared<Protocol_ScanDataGet719>();
-  } else if (*sp_cmd == *(CmdRepository719::CreateInstance()->Sp_HeartBeat)) {
+  } else if (*sp_cmd == *(CmdRepository719::CreateInstance()->sp_heart_beat_)) {
     p = std::make_shared<Protocol_HeartBeat719>();
   } else {
     return;

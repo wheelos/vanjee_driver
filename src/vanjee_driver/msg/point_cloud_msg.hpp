@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -53,7 +53,21 @@ struct PointXYZI {
   float hor_angle;
   float ver_angle;
   float distance;
+  uint8_t flag;
 #endif
+  PointXYZI() {
+    x = 0;
+    y = 0;
+    z = 0;
+    intensity = 0;
+#ifdef ENABLE_GTEST
+    point_id = 0;
+    hor_angle = 0;
+    ver_angle = 0;
+    distance = 0;
+    flag = 0;
+#endif
+  }
 };
 struct PointXYZIRT {
   float x;
@@ -67,7 +81,55 @@ struct PointXYZIRT {
   float hor_angle;
   float ver_angle;
   float distance;
+  uint8_t flag;
 #endif
+  PointXYZIRT() {
+    x = 0;
+    y = 0;
+    z = 0;
+    intensity = 0;
+    ring = 0;
+    timestamp = 0;
+#ifdef ENABLE_GTEST
+    point_id = 0;
+    hor_angle = 0;
+    ver_angle = 0;
+    distance = 0;
+    flag = 0;
+#endif
+  }
+};
+struct PointXYZIRTT {
+  float x;
+  float y;
+  float z;
+  float intensity;
+  uint16_t ring;
+  double timestamp;
+  uint8_t tag;
+#ifdef ENABLE_GTEST
+  uint32_t point_id;
+  float hor_angle;
+  float ver_angle;
+  float distance;
+  uint8_t flag;
+#endif
+  PointXYZIRTT() {
+    x = 0;
+    y = 0;
+    z = 0;
+    intensity = 0;
+    ring = 0;
+    timestamp = 0;
+    tag = 0;
+#ifdef ENABLE_GTEST
+    point_id = 0;
+    hor_angle = 0;
+    ver_angle = 0;
+    distance = 0;
+    flag = 0;
+#endif
+  }
 };
 #pragma pack(pop)
 template <typename T_Point>

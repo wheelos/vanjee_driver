@@ -18,7 +18,7 @@ disclaimer.
 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following
 disclaimer in the documentation and/or other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the names of other contributors may be used
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the names of other contributors may be used
 to endorse or promote products derived from this software without specific prior written permission.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
@@ -31,5 +31,5 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 *********************************************************************************************************************/
 
 #define VANJEE_LIDAR_VERSION_MAJOR 2
-#define VANJEE_LIDAR_VERSION_MINOR 0
-#define VANJEE_LIDAR_VERSION_PATCH 15
+#define VANJEE_LIDAR_VERSION_MINOR 2
+#define VANJEE_LIDAR_VERSION_PATCH 9

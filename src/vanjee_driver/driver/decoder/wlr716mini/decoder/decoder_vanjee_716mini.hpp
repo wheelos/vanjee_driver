@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -40,6 +40,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vanjee_driver/driver/decoder/decoder_mech.hpp>
 #include <vanjee_driver/driver/decoder/wlr716mini/protocol/frames/cmd_repository_716mini.hpp>
 #include <vanjee_driver/driver/decoder/wlr716mini/protocol/frames/protocol_device_operate_params_get.hpp>
+#include <vanjee_driver/driver/decoder/wlr716mini/protocol/frames/protocol_firmware_version_get.hpp>
 #include <vanjee_driver/driver/decoder/wlr716mini/protocol/frames/protocol_scan_data_get.hpp>
 #include <vanjee_driver/driver/difop/cmd_class.hpp>
 #include <vanjee_driver/driver/difop/protocol_abstract.hpp>
@@ -52,7 +53,7 @@ enum ProtocolType716mini { NON = 0, UNIVERSAL = 1, HIK };
 
 #pragma pack(push, 1)
 
-typedef struct _Vanjee716miniMsopPkt {
+typedef struct _Vanjee716miniHeaderPkt {
   uint8_t header[2];
   uint16_t frame_len;
   uint16_t frame_id;
@@ -67,12 +68,25 @@ typedef struct _Vanjee716miniMsopPkt {
   uint8_t cmd_param1;
   uint8_t cmd_param2;
 
+  void ToLittleEndian() {
+    frame_len = ntohs(frame_len);
+    frame_id = ntohs(frame_id);
+    timestamp = ntohl(timestamp);
+    device_type = ntohs(device_type);
+    second = ntohl(second);
+    subsecond = ntohl(subsecond);
+  }
+} Vanjee716miniHeaderPkt;
+
+typedef struct _Vanjee716miniMsopPkt {
+  Vanjee716miniHeaderPkt header;
+
   uint16_t device_status;
   uint16_t watchdog_reset_num;
   uint16_t software_reset_num;
   uint16_t loss_elec_reset_num;
   uint16_t detected_encoder_groove_count_per_circle;
-  uint32_t zero_point_pulsewidth;
+  uint32_t zero_point_pulse_width;
   uint16_t zero_point_distance;
   uint16_t motor_speed;
   uint16_t tcp_crc_error;
@@ -101,19 +115,14 @@ typedef struct _Vanjee716miniMsopPkt {
   uint16_t points_num;
 
   void ToLittleEndian() {
-    frame_len = ntohs(frame_len);
-    frame_id = ntohs(frame_id);
-    timestamp = ntohl(timestamp);
-    device_type = ntohs(device_type);
-    second = ntohl(second);
-    subsecond = ntohl(subsecond);
+    // header.ToLittleEndian();
 
     device_status = ntohs(device_status);
     watchdog_reset_num = ntohs(watchdog_reset_num);
     software_reset_num = ntohs(software_reset_num);
     loss_elec_reset_num = ntohs(loss_elec_reset_num);
     detected_encoder_groove_count_per_circle = ntohs(detected_encoder_groove_count_per_circle);
-    zero_point_pulsewidth = ntohl(zero_point_pulsewidth);
+    zero_point_pulse_width = ntohl(zero_point_pulse_width);
     zero_point_distance = ntohs(zero_point_distance);
     motor_speed = ntohs(motor_speed);
     tcp_crc_error = ntohs(tcp_crc_error);
@@ -132,7 +141,7 @@ typedef struct _Vanjee716miniMsopPkt {
 } Vanjee716miniMsopPkt;
 #pragma pack(pop)
 
-typedef struct _Vanjee716miniPointDXYZIRT {
+typedef struct _Vanjee716miniPointDXYZIRTT {
   float the_1st_echo_distance;
   float the_1st_echo_x;
   float the_1st_echo_y;
@@ -144,7 +153,8 @@ typedef struct _Vanjee716miniPointDXYZIRT {
   float intensity;
   double timestamp;
   int ring;
-} Vanjee716miniPointDXYZIRT;
+  uint8_t tag;
+} Vanjee716miniPointDXYZIRTT;
 
 typedef struct _Vanjee716miniPacket {
   double timestamp;
@@ -160,8 +170,7 @@ typedef struct _Vanjee716miniPacket {
 template <typename T_PointCloud>
 class DecoderVanjee716Mini : public DecoderMech<T_PointCloud> {
  private:
-  std::vector<double> all_points_luminous_moment_716mini_;  // Cache a circle of point cloud
-                                                            // time difference
+  std::vector<double> all_points_luminous_moment_716mini_;  // Cache a circle of point cloud time difference
 
   bool scan_data_recv_flag_ = false;
   double pkt_ts_ = 0;
@@ -172,6 +181,9 @@ class DecoderVanjee716Mini : public DecoderMech<T_PointCloud> {
   int32_t pre_frequency_ = -1;
 
   uint8_t protocol_type_ = 0;
+  std::vector<int8_t> protocol_type_flag_;
+
+  std::map<uint16, std::string> get_lidar_param_;
 
   std::vector<uint8_t> buf_cache_;
 
@@ -180,11 +192,12 @@ class DecoderVanjee716Mini : public DecoderMech<T_PointCloud> {
   ChanAngles chan_angles_;
 
   std::vector<Vanjee716miniPacket> point_cloud_packet;
-  std::vector<Vanjee716miniPointDXYZIRT> point_cloud_value_;
+  std::vector<Vanjee716miniPointDXYZIRTT> point_cloud_value_;
   void initLdLuminousMoment(uint32_t point_cloud_size, double circle_time);
   bool lidarParamGet(uint8_t frequency, uint8_t pkt_type, uint8_t total_pkts_num, uint16_t points_num, uint32_t &point_cloud_size,
                      double &circle_time, double &resolution);
   void setPointsValue(const uint8_t *points_buf, uint8_t pkt_type, uint8_t pkg_no, uint8_t pkt_num, uint16_t points_num, double resolution);
+  bool getLidarProtocolType(uint8_t pkt_num, uint8_t pkg_no, uint8_t pkt_type);
 
  public:
   constexpr static double FRAME_DURATION = 0.066666667;
@@ -224,11 +237,15 @@ inline WJDecoderMechConstParam &DecoderVanjee716Mini<T_PointCloud>::getConstPara
 template <typename T_PointCloud>
 inline DecoderVanjee716Mini<T_PointCloud>::DecoderVanjee716Mini(const WJDecoderParam &param)
     : DecoderMech<T_PointCloud>(getConstParam(param.publish_mode), param), chan_angles_(this->const_param_.LASER_NUM) {
+  this->point_cloud_detect_params_.enable = true;
   if (param.max_distance < param.min_distance)
     WJ_WARNING << "config params (max distance < min distance)!" << WJ_REND;
 
   this->packet_duration_ = FRAME_DURATION / SINGLE_PKT_NUM;
   split_strategy_ = std::make_shared<SplitStrategyByBlock>(0);
+
+  this->start_angle_ = this->param_.start_angle * 1000;
+  this->end_angle_ = this->param_.end_angle * 1000;
 }
 
 template <typename T_PointCloud>
@@ -303,7 +320,7 @@ inline bool DecoderVanjee716Mini<T_PointCloud>::decodeMsopPkt(const uint8_t *pkt
       continue;
     }
 
-    if (frameLen <= data.size() - i) {
+    if (frameLen <= (data.size() - i)) {
       if (decodeMsopPkt_1(&data[i], frameLen)) {
         ret = true;
         indexLast = i + frameLen;
@@ -333,7 +350,11 @@ inline void DecoderVanjee716Mini<T_PointCloud>::setPointsValue(const uint8_t *po
     double timestamp_point;
     for (size_t i = 0; i < points_num; i++) {
       if (protocol_type_ == (uint8_t)ProtocolType716mini::HIK) {
-        point_id = (pkg_no / 2) * 600 + i;
+        if (pkg_no <= (pkt_num / 2)) {
+          point_id = (pkg_no - 1) * 600 + i;
+        } else {
+          point_id = (pkg_no - (pkt_num / 4) - 1) * 600 + i;
+        }
       } else {
         point_id = (pkg_no - 1) * 600 + i;
       }
@@ -346,12 +367,15 @@ inline void DecoderVanjee716Mini<T_PointCloud>::setPointsValue(const uint8_t *po
 
       int32_t angle = (int32_t)((225 + point_id * resolution) * 1000) % 360000;
       float distance = ((points_buf[2 * i] << 8) + points_buf[2 * i + 1]) / 1000.0;
-      if (this->param_.start_angle < this->param_.end_angle) {
-        if (angle < this->param_.start_angle * 1000 || angle > this->param_.end_angle * 1000) {
+      if (distance > 0.0f) {
+        this->point_cloud_detect_params_.valid_point_num++;
+      }
+      if (this->start_angle_ < this->end_angle_) {
+        if (angle < this->start_angle_ || angle > this->end_angle_) {
           distance = 0;
         }
       } else {
-        if (angle > this->param_.end_angle * 1000 && angle < this->param_.start_angle * 1000) {
+        if (angle > this->end_angle_ && angle < this->start_angle_) {
           distance = 0;
         }
       }
@@ -372,11 +396,17 @@ inline void DecoderVanjee716Mini<T_PointCloud>::setPointsValue(const uint8_t *po
       // point_cloud_value_[point_id].intensity = 0;
       point_cloud_value_[point_id].timestamp = timestamp_point;
       point_cloud_value_[point_id].ring = this->first_line_id_;
+      point_cloud_value_[point_id].tag = 0;
     }
   } else if (pkt_type == 1) {
     for (size_t i = 0; i < points_num; i++) {
       if (protocol_type_ == (uint8_t)ProtocolType716mini::HIK) {
-        point_id = (pkg_no / 2 - 1) * 600 + i;
+        if (pkg_no <= (pkt_num / 2)) {
+          point_id = (pkg_no - (pkt_num / 4) - 1) * 600 + i;
+        } else {
+          point_id = (pkg_no - (pkt_num / 2) - 1) * 600 + i;
+        }
+
       } else {
         point_id = (pkg_no - (pkt_num / 2) - 1) * 600 + i;
       }
@@ -386,43 +416,69 @@ inline void DecoderVanjee716Mini<T_PointCloud>::setPointsValue(const uint8_t *po
 }
 
 template <typename T_PointCloud>
+inline bool DecoderVanjee716Mini<T_PointCloud>::getLidarProtocolType(uint8_t pkt_num, uint8_t pkg_no, uint8_t pkt_type) {
+  if (protocol_type_ == (uint8_t)ProtocolType716mini::NON) {
+    if (pkg_no == 1) {
+      protocol_type_flag_.resize(pkt_num, -1);
+    }
+
+    if (protocol_type_flag_.size() <= 0) {
+      return false;
+    }
+
+    protocol_type_flag_[pkg_no - 1] = pkt_type;
+
+    if (pkt_type == 1) {
+      for (int i = 0; i < pkg_no; i++) {
+        if (protocol_type_flag_[i] == -1) {
+          protocol_type_flag_.resize(0);
+          return false;
+        }
+      }
+      if (pkg_no <= pkt_num / 2) {
+        protocol_type_ = (uint8_t)ProtocolType716mini::HIK;
+      } else {
+        protocol_type_ = (uint8_t)ProtocolType716mini::UNIVERSAL;
+      }
+    }
+  }
+  return true;
+}
+
+template <typename T_PointCloud>
 inline bool DecoderVanjee716Mini<T_PointCloud>::decodeMsopPkt_1(const uint8_t *packet, size_t size) {
   bool ret = false;
+  Vanjee716miniHeaderPkt &header = (*(Vanjee716miniHeaderPkt *)packet);
+  header.ToLittleEndian();
+
+  if (header.main_cmd != 0x02 || header.sub_cmd != 0x02) {
+    return false;
+  }
+
   Vanjee716miniMsopPkt &pkt = (*(Vanjee716miniMsopPkt *)packet);
   pkt.ToLittleEndian();
 
-  if (pkt.main_cmd != 0x02 || pkt.sub_cmd != 0x02)
+  if (!getLidarProtocolType(pkt.total_pkts_num, pkt.pkt_id, pkt.pkt_type))
     return false;
-  if (protocol_type_ == (uint8_t)ProtocolType716mini::NON) {
-    if (pkt.pkt_id == 2 && pkt.pkt_type == 0) {
-      protocol_type_ = (uint8_t)ProtocolType716mini::UNIVERSAL;
-    } else if (pkt.pkt_id == 2 && pkt.pkt_type == 1) {
-      protocol_type_ = (uint8_t)ProtocolType716mini::HIK;
-    } else if (pkt.pkt_id != 1) {
-      return false;
-    }
-  }
 
-  int32_t loss_packets_num = (pkt.frame_id + 65536 - pre_frame_id_) % 65536;
+  int32_t loss_packets_num = (pkt.header.frame_id + 65536 - pre_frame_id_) % 65536;
   if (loss_packets_num > 1 && pre_frame_id_ >= 0)
     WJ_WARNING << "loss " << (loss_packets_num - 1) << " packets" << WJ_REND;
-  pre_frame_id_ = pkt.frame_id;
+  pre_frame_id_ = pkt.header.frame_id;
 
   double pkt_ts = 0.0;
-  if (!this->param_.use_lidar_clock)
-    pkt_ts = getTimeHost() * 1e-6;
-  else {
+  this->point_cloud_detect_params_.point_cloud_pkt_host_ts = getTimeHost() * 1e-6;
+  if (!this->param_.use_lidar_clock) {
+    pkt_ts = this->point_cloud_detect_params_.point_cloud_pkt_host_ts;
+  } else {
     double gapTime1900_1970 = (25567LL * 24 * 3600);
-    pkt_ts = (double)pkt.second + ((double)pkt.subsecond * 0.23283 * 1e-9) - gapTime1900_1970;
-    if (pkt_ts <= 0)
-      pkt_ts = 0;
+    pkt_ts = (double)pkt.header.second + ((double)pkt.header.subsecond * 0.23283 * 1e-9) - gapTime1900_1970;
+    pkt_ts = pkt_ts < 0 ? 0 : pkt_ts;
   }
 
-  if (this->param_.device_ctrl_state_enable && pkt.device_status == 0x0001 || pkt.device_status == 0x0002) {
-    this->device_ctrl_->cmd_id = 0x0100;
-    this->device_ctrl_->cmd_param = pkt.device_status;
-    this->device_ctrl_->cmd_state = (uint8_t)pkt.device_status;
-    this->cb_device_ctrl_state_(pkt_ts);
+  if ((this->param_.device_ctrl_state_enable || this->param_.send_lidar_param_enable) &&
+      (pkt.device_status == 0x0001 || pkt.device_status == 0x0002)) {
+    this->deviceStatePublish(0, pkt.device_status, pkt.device_status, pkt_ts);
   }
 
   if (pkt.circle_id != circle_id_of_pre_pkt_) {
@@ -436,20 +492,20 @@ inline bool DecoderVanjee716Mini<T_PointCloud>::decodeMsopPkt_1(const uint8_t *p
     }
   }
 
-  Vanjee716miniPacket vanjee716miniPacket;
-  vanjee716miniPacket.timestamp = pkt_ts;
-  vanjee716miniPacket.circle_id = pkt.circle_id;
-  vanjee716miniPacket.frequency = pkt.frequency;
-  vanjee716miniPacket.total_pkts_num = pkt.total_pkts_num;
-  vanjee716miniPacket.pkt_id = pkt.pkt_id;
-  vanjee716miniPacket.pkt_type = pkt.pkt_type;
-  vanjee716miniPacket.points_num = pkt.points_num;
-  vanjee716miniPacket.pkt_data.resize(size);
-  std::copy(packet, packet + size, vanjee716miniPacket.pkt_data.begin());
+  Vanjee716miniPacket packet_vanjee_716mini;
+  packet_vanjee_716mini.timestamp = pkt_ts;
+  packet_vanjee_716mini.circle_id = pkt.circle_id;
+  packet_vanjee_716mini.frequency = pkt.frequency;
+  packet_vanjee_716mini.total_pkts_num = pkt.total_pkts_num;
+  packet_vanjee_716mini.pkt_id = pkt.pkt_id;
+  packet_vanjee_716mini.pkt_type = pkt.pkt_type;
+  packet_vanjee_716mini.points_num = pkt.points_num;
+  packet_vanjee_716mini.pkt_data.resize(size);
+  std::copy(packet, packet + size, packet_vanjee_716mini.pkt_data.begin());
 
   if (point_cloud_packet.size() >= pkt.total_pkts_num)
     point_cloud_packet.clear();
-  point_cloud_packet.push_back(vanjee716miniPacket);
+  point_cloud_packet.push_back(packet_vanjee_716mini);
 
   if (point_cloud_packet.size() == pkt.total_pkts_num) {
     uint32_t all_pkt_mask = 0;
@@ -483,6 +539,9 @@ inline bool DecoderVanjee716Mini<T_PointCloud>::decodeMsopPkt_1(const uint8_t *p
     }
 
     if ((pkt_id_mask_ & all_pkt_mask) == all_pkt_mask) {
+      if (this->point_cloud_detect_params_.enable) {
+        this->pointCloudDetectParamsUpdate();
+      }
       this->first_point_ts_ = pkt_ts_ - all_points_luminous_moment_716mini_[all_points_luminous_moment_716mini_.size() - 1];
       this->last_point_ts_ = pkt_ts_;
 
@@ -513,6 +572,7 @@ inline bool DecoderVanjee716Mini<T_PointCloud>::decodeMsopPkt_1(const uint8_t *p
           }
           setTimestamp(point, point_cloud_value_[i].timestamp);
           setRing(point, point_cloud_value_[i].ring);
+          setTag(point, point_cloud_value_[i].tag);
 #ifdef ENABLE_GTEST
           setPointId(point, i);
           setHorAngle(point, ((int32_t)(225 + (i * resolution) * 1000) % 360000) / 1000.0);
@@ -566,6 +626,8 @@ void DecoderVanjee716Mini<T_PointCloud>::processDifopPkt(std::shared_ptr<Protoco
 
   if (*sp_cmd == *(CmdRepository716Mini::CreateInstance()->sp_scan_data_get_)) {
     p = std::make_shared<Protocol_ScanDataGet716Mini>();
+  } else if (*sp_cmd == *(CmdRepository716Mini::CreateInstance()->sp_firmware_version_get_)) {
+    p = std::make_shared<Protocol_FirmwareVersionGet716Mini>();
   } else {
     return;
   }
@@ -580,6 +642,26 @@ void DecoderVanjee716Mini<T_PointCloud>::processDifopPkt(std::shared_ptr<Protoco
       scan_data_recv_flag_ = true;
       Decoder<T_PointCloud>::angles_ready_ = true;
     }
+  } else if (typeid(*params) == typeid(Params_FirmwareVersion716Mini)) {
+    (*(Decoder<T_PointCloud>::get_difo_ctrl_map_ptr_))[sp_cmd->GetCmdKey()].setStopFlag(true);
+    std::shared_ptr<Params_FirmwareVersion716Mini> param = std::dynamic_pointer_cast<Params_FirmwareVersion716Mini>(params);
+
+    if (get_lidar_param_.count((uint16_t)LidarParam::firmware_version) > 0) {
+      get_lidar_param_[(uint16_t)LidarParam::firmware_version] = param->firmware_version_;
+    } else {
+      get_lidar_param_.emplace((uint16_t)LidarParam::firmware_version, param->firmware_version_);
+    }
+
+    if (this->param_.send_lidar_param_enable) {
+      LidarParameterInterface lidar_param;
+      lidar_param.cmd_id = (uint16_t)LidarParam::firmware_version;
+      lidar_param.cmd_type = 0;
+      lidar_param.repeat_interval = 0;
+      this->getLidarParameterDataFormat(lidar_param, get_lidar_param_);
+      this->lidarParameterPublish(lidar_param, this->prev_pkt_ts_);
+    }
+
+    WJ_INFOL << "Get lidar firmware version succ ( " << param->firmware_version_ << " )" << WJ_REND;
   } else {
     WJ_WARNING << "Unknown Params Type..." << WJ_REND;
   }

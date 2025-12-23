@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -53,11 +53,13 @@ DEFINE_MEMBER_CHECKER(z)
 DEFINE_MEMBER_CHECKER(intensity)
 DEFINE_MEMBER_CHECKER(ring)
 DEFINE_MEMBER_CHECKER(timestamp)
+DEFINE_MEMBER_CHECKER(tag)
 #ifdef ENABLE_GTEST
 DEFINE_MEMBER_CHECKER(point_id)
 DEFINE_MEMBER_CHECKER(hor_angle)
 DEFINE_MEMBER_CHECKER(ver_angle)
 DEFINE_MEMBER_CHECKER(distance)
+DEFINE_MEMBER_CHECKER(flag)
 #endif
 
 #define VANJEE_HAS_MEMBER(C, member) has_##member<C>::value
@@ -114,6 +116,43 @@ template <typename T_Point>
 inline typename std::enable_if<VANJEE_HAS_MEMBER(T_Point, timestamp)>::type setTimestamp(T_Point &point, const double &value) {
   point.timestamp = value;
 }
+
+template <typename T_Point>
+inline typename std::enable_if<!VANJEE_HAS_MEMBER(T_Point, tag)>::type setTag(T_Point &point, const uint8_t &value) {
+}
+
+template <typename T_Point>
+inline typename std::enable_if<VANJEE_HAS_MEMBER(T_Point, tag)>::type setTag(T_Point &point, const uint8_t &value) {
+  point.tag = value;
+}
+
+template <typename T_Point>
+inline typename std::enable_if<!VANJEE_HAS_MEMBER(T_Point, ring)>::type getRing(T_Point &point, uint16_t &value) {
+}
+
+template <typename T_Point>
+inline typename std::enable_if<VANJEE_HAS_MEMBER(T_Point, ring)>::type getRing(T_Point &point, uint16_t &value) {
+  value = point.ring;
+}
+
+template <typename T_Point>
+inline typename std::enable_if<!VANJEE_HAS_MEMBER(T_Point, timestamp)>::type getTimestamp(T_Point &point, double &value) {
+}
+
+template <typename T_Point>
+inline typename std::enable_if<VANJEE_HAS_MEMBER(T_Point, timestamp)>::type getTimestamp(T_Point &point, double &value) {
+  value = point.timestamp;
+}
+
+template <typename T_Point>
+inline typename std::enable_if<!VANJEE_HAS_MEMBER(T_Point, tag)>::type getTag(T_Point &point, const uint8_t &value) {
+}
+
+template <typename T_Point>
+inline typename std::enable_if<VANJEE_HAS_MEMBER(T_Point, tag)>::type getTag(T_Point &point, const uint8_t &value) {
+  value = point.tag;
+}
+
 #ifdef ENABLE_GTEST
 template <typename T_Point>
 inline typename std::enable_if<!VANJEE_HAS_MEMBER(T_Point, point_id)>::type setPointId(T_Point &point, const uint32_t &value) {
@@ -149,5 +188,14 @@ inline typename std::enable_if<!VANJEE_HAS_MEMBER(T_Point, distance)>::type setD
 template <typename T_Point>
 inline typename std::enable_if<VANJEE_HAS_MEMBER(T_Point, distance)>::type setDistance(T_Point &point, const float &value) {
   point.distance = value;
+}
+
+template <typename T_Point>
+inline typename std::enable_if<!VANJEE_HAS_MEMBER(T_Point, flag)>::type setFlag(T_Point &point, const uint8_t &value) {
+}
+
+template <typename T_Point>
+inline typename std::enable_if<VANJEE_HAS_MEMBER(T_Point, flag)>::type setFlag(T_Point &point, const uint8_t &value) {
+  point.flag = value;
 }
 #endif

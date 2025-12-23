@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -42,12 +42,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "vanjee_lidar_driver_lib.hpp"
 
-// @brief this callback which would return the point cloud to your own
-// application from sdk
-void pointCloudCallback(std::shared_ptr<PointCloudMsg> msg) {
+// @brief this callback which would return the point cloud to your own application from sdk
+void pointCloudCallback(std::shared_ptr<PointCloudClient> msg) {
 #if false
-  std::cout << "msg: " << msg->seq << " , timestamp: " << std::to_string(msg->timestamp) << " , point cloud size: " << msg->points.size() << std::endl;
-  // for (auto it = msg->points.begin(); it != msg->points.end(); it++)
+  std::cout << "lidar[" << (uint16_t)msg->lidar_id_ << "] msg: " << msg->point_cloud_msg_.seq << " , timestamp: " << std::to_string(msg->point_cloud_msg_.timestamp)
+             << " , point cloud size: " << msg->point_cloud_msg_.points.size() << std::endl;
+  // for (auto it = msg->point_cloud_msg_.points.begin(); it != msg->point_cloud_msg_.points.end(); it++)
   // {
   //   std::cout << std::fixed << std::setprecision(3) 
   //             << "(" << it->x << ", " << it->y << ", " << it->z << ", " << (int)it->intensity << ")" 
@@ -56,30 +56,37 @@ void pointCloudCallback(std::shared_ptr<PointCloudMsg> msg) {
 #endif
 }
 
-// @brief this callback which would return the imu to your own application from
-// sdk
-void imuPacketCallback(std::shared_ptr<vanjee::lidar::ImuPacket> msg) {
+// @brief this callback which would return the imu to your own application from sdk
+void imuPacketCallback(std::shared_ptr<ImuPacketClient> msg) {
 #if false
-  std::cout << "timestamp: " << std::to_string(msg->timestamp) << ", seq: " << msg->seq << std::endl;
+  std::cout << "lidar[" << (uint16_t)msg->lidar_id_ << "] timestamp: " << std::to_string(msg->timestamp) << ", seq: " << msg->seq << std::endl;
   std::cout << "x_acc: " << msg->linear_acce[0] << ", y_acc: " << msg->linear_acce[1]<< ", z_acc: " << msg->linear_acce[2] << std::endl;
   std::cout << "angular_voc_x: " << msg->angular_voc[0] << ", angular_voc_y: " << msg->angular_voc[1]<< ", angular_voc_z: " << msg->angular_voc[2] <<std::endl;
 #endif
 }
 
-// @brief this callback which would return the laserScan to your own application
-// from sdk
-void laserScanCallback(std::shared_ptr<vanjee::lidar::ScanData> msg) {
+// @brief this callback which would return the laserScan to your own application from sdk
+void laserScanCallback(std::shared_ptr<ScanDataClient> msg) {
 #if false
-    std::cout << "timestamp: " << std::to_string(msg->timestamp) << ", seq: " << msg->seq << "data_size: " << msg->ranges.size() << std::endl;
+    std::cout << "lidar[" << (uint16_t)msg->lidar_id_ << "] timestamp: " << std::to_string(msg->timestamp) 
+              << ", seq: " << msg->seq << ", data_size: " << msg->ranges.size() << std::endl;
 #endif
 }
 
-// @brief this callback which would return the device ctrl state to your own application
-// from sdk
-void deviceCtrlStateCallback(std::shared_ptr<vanjee::lidar::DeviceCtrl> msg) {
+// @brief this callback which would return the device ctrl state to your own application from sdk
+void deviceCtrlStateCallback(std::shared_ptr<DeviceCtrlClient> msg) {
 #if false
-  std::cout << "seq: " << msg->seq << ", timestamp: " << std::to_string(msg->timestamp) << ", cmd_id: " << msg->cmd_id
-         << ", cmd_param: " << msg->cmd_param << ", cmd_state: " << (uint16_t)msg->cmd_state << std::endl;
+  std::cout << "lidar[" << (uint16_t)msg->lidar_id_ << "] seq: " << msg->seq << ", timestamp: " << std::to_string(msg->timestamp) 
+            << ", cmd_id: " << msg->cmd_id << ", cmd_param: " << msg->cmd_param << ", cmd_state: " << (uint16_t)msg->cmd_state << std::endl;
+#endif
+}
+
+// @brief this callback which would return the lidar parameter to your own application from sdk
+void lidarParameterCallback(std::shared_ptr<LidarParameterInterfaceClient> msg) {
+#if false
+  std::cout << "lidar[" << (uint16_t)msg->lidar_id_ << "] seq: " << msg->seq << ", timestamp: " << std::to_string(msg->timestamp) 
+            << ", cmd_id: " << msg->cmd_id << ", cmd_type: " << (uint16_t)msg->cmd_type << ", repeat_interval: " << (uint16_t)msg->repeat_interval
+            << ", data: " << msg->data << std::endl;
 #endif
 }
 
@@ -104,12 +111,57 @@ void getKeyboard(void) {
   }
 }
 
+void deviceCtrlCmd(void) {
+  // For device control parameters, please refer to <PROJECT_PATH>/src/vanjee_lidar_sdk/doc/intro/03_device_ctrl_intro_CN.md
+  uint8_t lidar_id = 1;  // lidar id, first id is 1
+  uint32_t seq = 0;
+  uint16_t cmd_id = 0;
+  uint16_t cmd_param = 0;
+  uint8_t cmd_state = 0;
+  while (!to_exit_process) {
+    DeviceCtrlClient device_ctrl;
+    device_ctrl.lidar_id_ = lidar_id;
+    device_ctrl.seq = seq++;
+    device_ctrl.cmd_id = cmd_id;
+    device_ctrl.cmd_param = cmd_param;
+    device_ctrl.cmd_state = cmd_state;
+    vanjeeLidarDriverDeviceCtrlApi(device_ctrl);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  }
+}
+
+void lidarParameterCmd(void) {
+  // For lidar parameters, please refer to <PROJECT_PATH>/src/vanjee_lidar_sdk/doc/intro/04_lidar_parameter_interface_intro_CN.md
+  uint8_t lidar_id = 1;  // lidar id, first id is 1
+  uint32_t seq = 0;
+  uint16_t cmd_id = 2;
+  uint16_t cmd_type = 0;
+  uint8_t repeat_interval = 0;
+  std::string data = "";
+  while (!to_exit_process) {
+    LidarParameterInterfaceClient lidar_param;
+    lidar_param.lidar_id_ = lidar_id;
+    lidar_param.seq = seq++;
+    lidar_param.cmd_id = cmd_id;
+    lidar_param.cmd_type = cmd_type;
+    lidar_param.repeat_interval = repeat_interval;
+    lidar_param.data = data;
+    vanjeeLidarDriverLidarParameterApi(lidar_param);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  }
+}
+
 int main() {
   std::thread detect_handle_thread = std::thread(getKeyboard);
+  // std::thread device_ctrl_handle_thread = std::thread(deviceCtrlCmd);
+  // std::thread lidar_param_handle_thread = std::thread(lidarParameterCmd);
   std::string config_path =
-      "/home/vanjee/ROS/01vanjee_sdk_dev/00temp_workspace/src/vanjee_lidar_sdk/"
+      "/home/vanjee/ROS/01vanjee_sdk_dev/00temp_workspace/src/vanjee_lidar_sdk/src/vanjee_driver/lib/demo/"
       "config/config.yaml";  // absolute path of config file
-  vanjeeLidarDriverLibStart(config_path, pointCloudCallback, imuPacketCallback, laserScanCallback, deviceCtrlStateCallback);
+  vanjeeLidarDriverLibStart(config_path, pointCloudCallback, imuPacketCallback, laserScanCallback, deviceCtrlStateCallback, lidarParameterCallback);
+  // device_ctrl_handle_thread.join();
+  // packet_handle_thread.join();
+  // lidar_param_handle_thread.join();
   detect_handle_thread.join();
   return 0;
 }

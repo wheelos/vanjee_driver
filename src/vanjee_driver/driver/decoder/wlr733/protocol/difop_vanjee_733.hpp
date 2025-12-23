@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -48,14 +48,25 @@ namespace vanjee {
 namespace lidar {
 class DifopVanjee733 : public DifopBase {
  public:
+  explicit DifopVanjee733();
   virtual void initGetDifoCtrlDataMapPtr();
 };
+
+inline DifopVanjee733::DifopVanjee733() {
+  ProtocolBase pb;
+  pb.Idx.resize(4);
+  pb.SetByteOrder(ProtocolBase::DataEndiannessMode::little_endian);
+  this->setOrgProtocolBase(pb);
+}
 
 void DifopVanjee733::initGetDifoCtrlDataMapPtr() {
   getDifoCtrlData_map_ptr_ = std::make_shared<std::map<uint16, GetDifoCtrlClass>>();
 
   GetDifoCtrlClass getDifoCtrlData_LdAngleGet(*(std::make_shared<Protocol_LDAngleGet733>()->GetRequest()));
-  (*getDifoCtrlData_map_ptr_).emplace(CmdRepository733::CreateInstance()->Sp_LDAngleGet->GetCmdKey(), getDifoCtrlData_LdAngleGet);
+  (*getDifoCtrlData_map_ptr_).emplace(CmdRepository733::CreateInstance()->sp_ld_angle_get_->GetCmdKey(), getDifoCtrlData_LdAngleGet);
+
+  GetDifoCtrlClass getDifoCtrlData_MotorParamsGet(*(std::make_shared<Protocol_MotorParamsGet733>()->GetRequest()));
+  (*getDifoCtrlData_map_ptr_).emplace(CmdRepository733::CreateInstance()->sp_motor_params_get_->GetCmdKey(), getDifoCtrlData_MotorParamsGet);
 }
 }  // namespace lidar
 }  // namespace vanjee

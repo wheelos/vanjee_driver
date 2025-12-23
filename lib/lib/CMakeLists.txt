@@ -51,14 +51,10 @@ if(${ENABLE_GTEST})
  add_definitions("-DENABLE_GTEST")
 endif(${ENABLE_GTEST})
 
-option(ENABLE_TBB "Enable TBB" OFF)
-if(${ENABLE_TBB})
-
-add_definitions("-DENABLE_TBB")
-find_package(TBB REQUIRED)
-include_directories(${TBB_INCLUDE_DIR})
-
-endif(${ENABLE_TBB})
+option(ENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE "Enable transform timestamp to datetime with local time zone" OFF)
+if(${ENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE})
+  add_definitions("-DENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE")
+endif(${ENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE})
 
 option(ENABLE_GRAVITY_ACCELERATION_REMOVE      "Enable Gravity acceleration remove" OFF)
 if(${ENABLE_GRAVITY_ACCELERATION_REMOVE})
@@ -73,5 +69,20 @@ include_directories(${VANJEE_DRIVER_INCLUDE_DIRS})
 add_library(vanjee_lidar_driver_lib SHARED
             vanjee_lidar_driver_lib.cpp)
 
+get_filename_component(LIB_DIR "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+  find_library(VANJEE_FILTER_LIB
+  NAMES VanJeeLaser760Filter_linux
+  PATHS ${LIB_DIR}
+)
+
+if((VANJEE_FILTER_LIB))
+  message(STATUS "Found dynamic library")
+  add_definitions(-DFILTER_DLL_ENABLE)
+endif()
+
 target_link_libraries(vanjee_lidar_driver_lib 
                       ${EXTERNAL_LIBS} ${VANJEE_DRIVER_LIBRARIES})
+
+if((VANJEE_FILTER_LIB))
+  target_link_libraries(vanjee_lidar_driver_lib ${VANJEE_FILTER_LIB})
+endif()

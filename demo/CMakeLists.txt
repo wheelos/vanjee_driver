@@ -42,14 +42,10 @@ if(${ENABLE_GTEST})
  add_definitions("-DENABLE_GTEST")
 endif(${ENABLE_GTEST})
 
-option(ENABLE_TBB "Enable TBB" OFF)
-if(${ENABLE_TBB})
-
-add_definitions("-DENABLE_TBB")
-find_package(TBB REQUIRED)
-include_directories(${TBB_INCLUDE_DIR})
-
-endif(${ENABLE_TBB})
+option(ENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE "Enable transform timestamp to datetime with local time zone" OFF)
+if(${ENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE})
+  add_definitions("-DENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE")
+endif(${ENABLE_TIMESTAMP_TRANS_WITH_LOCAL_TIME_ZONE})
 
 option(ENABLE_GRAVITY_ACCELERATION_REMOVE      "Enable Gravity acceleration remove" OFF)
 if(${ENABLE_GRAVITY_ACCELERATION_REMOVE})
@@ -59,25 +55,35 @@ endif(${ENABLE_GRAVITY_ACCELERATION_REMOVE})
 find_package(vanjee_driver REQUIRED)
 include_directories(${VANJEE_DRIVER_INCLUDE_DIRS})
 
+get_filename_component(LIB_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+find_library(VANJEE_FILTER_LIB
+    NAMES VanJeeLaser760Filter_linux
+    PATHS ${LIB_DIR}
+)
+
+if((VANJEE_FILTER_LIB))
+  message(STATUS "Found dynamic library")
+  add_definitions(-DFILTER_DLL_ENABLE)
+endif()
+
 add_executable(demo_online
               demo_online.cpp)
 target_link_libraries(demo_online
                     ${EXTERNAL_LIBS} ${VANJEE_DRIVER_LIBRARIES})
 
-if(${ENABLE_TBB})
-target_link_libraries(demo_online                   
-                      TBB::tbb)
-endif(${ENABLE_TBB})
+if((VANJEE_FILTER_LIB))
+  target_link_libraries(demo_online ${VANJEE_FILTER_LIB})
+endif()
 
 add_executable(demo_online_multi_lidars
               demo_online_multi_lidars.cpp)
 
 target_link_libraries(demo_online_multi_lidars
                     ${EXTERNAL_LIBS} ${VANJEE_DRIVER_LIBRARIES})
-if(${ENABLE_TBB})
-target_link_libraries(demo_online_multi_lidars                   
-                      TBB::tbb)
-endif(${ENABLE_TBB})
+
+if((VANJEE_FILTER_LIB))
+  target_link_libraries(demo_online_multi_lidars ${VANJEE_FILTER_LIB})
+endif()
 
 if(NOT ${DISABLE_PCAP_PARSE})
 
@@ -86,10 +92,10 @@ add_executable(demo_pcap
 
 target_link_libraries(demo_pcap
                      ${EXTERNAL_LIBS} ${VANJEE_DRIVER_LIBRARIES})
-if(${ENABLE_TBB})
-target_link_libraries(demo_pcap                   
-                      TBB::tbb)
-endif(${ENABLE_TBB})
+
+if((VANJEE_FILTER_LIB))
+  target_link_libraries(demo_pcap ${VANJEE_FILTER_LIB})
+endif()
 
 else()
 

@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -70,6 +70,7 @@ class ChanAngles {
   ChanAngles(uint16_t chan_num) : chan_num_(chan_num) {
     vert_angles_.resize(chan_num_);
     horiz_angles_.resize(chan_num_);
+    eccentricity_angles_.resize(14400);
     horiz_vert_angles_.resize(chan_num_ * 3);
     for (size_t i = 0; i < horiz_vert_angles_.size(); i++) {
       horiz_vert_angles_[i].resize(1200);
@@ -353,7 +354,7 @@ class ChanAngles {
 
     std::ifstream fd(angle_path.c_str(), std::ios::in);
     if (!fd.is_open()) {
-      WJ_WARNING << "fail to open vangle file:" << angle_path << WJ_REND;
+      WJ_WARNING << "fail to open hangle file:" << angle_path << WJ_REND;
       return -1;
     }
     std::string item;

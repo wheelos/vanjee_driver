@@ -20,7 +20,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-3. Neither the names of the Vanjee, nor Suteng Innovation Technology, nor the
+3. Neither the names of the Vanjee, nor Wanji Technology, nor the
 names of other contributors may be used to endorse or promote products derived
 from this software without specific prior written permission.
 
@@ -52,15 +52,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace vanjee {
 namespace lidar {
 class DifopVanjee719C : public DifopBase {
- private:
-  uint16_t connect_type_;
-
  public:
   virtual void initGetDifoCtrlDataMapPtr();
-
-  DifopVanjee719C(uint16_t connect_type) {
-    connect_type_ = connect_type;
-  }
 };
 
 void DifopVanjee719C::initGetDifoCtrlDataMapPtr() {
@@ -70,12 +63,12 @@ void DifopVanjee719C::initGetDifoCtrlDataMapPtr() {
   // getDifoCtrlData_ScanDataGet(*(std::make_shared<Protocol_ScanDataGet719C>()->GetRequest()),true);
   // (*getDifoCtrlData_map_ptr_).emplace(CmdRepository719C::CreateInstance()->Sp_ScanDataGet->GetCmdKey(),getDifoCtrlData_ScanDataGet);
 
-  if (connect_type_ == 2) {
-    GetDifoCtrlClass getDifoCtrlData_HeartBeat_Tcp(*(std::make_shared<Protocol_HeartBeat719CTcp>()->GetRequest()), false, 3000);
-    (*getDifoCtrlData_map_ptr_).emplace(CmdRepository719C::CreateInstance()->Sp_HeartBeat_Tcp->GetCmdKey(), getDifoCtrlData_HeartBeat_Tcp);
-  } else {
+  if (this->param_.input_param.connect_type == 1) {
     GetDifoCtrlClass getDifoCtrlData_HeartBeat_Udp(*(std::make_shared<Protocol_HeartBeat719CUdp>()->GetRequest()), false, 3000);
-    (*getDifoCtrlData_map_ptr_).emplace(CmdRepository719C::CreateInstance()->Sp_HeartBeat_Udp->GetCmdKey(), getDifoCtrlData_HeartBeat_Udp);
+    (*getDifoCtrlData_map_ptr_).emplace(CmdRepository719C::CreateInstance()->sp_heart_beat_udp_->GetCmdKey(), getDifoCtrlData_HeartBeat_Udp);
+  } else if (this->param_.input_param.connect_type == 2) {
+    GetDifoCtrlClass getDifoCtrlData_HeartBeat_Tcp(*(std::make_shared<Protocol_HeartBeat719CTcp>()->GetRequest()), false, 3000);
+    (*getDifoCtrlData_map_ptr_).emplace(CmdRepository719C::CreateInstance()->sp_heart_beat_tcp_->GetCmdKey(), getDifoCtrlData_HeartBeat_Tcp);
   }
 }
 }  // namespace lidar
